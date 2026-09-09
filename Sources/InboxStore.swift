@@ -11,6 +11,8 @@ struct InboxMessage: Identifiable, Codable, Equatable {
     var body: String
     var date: Date
     var read: Bool = false
+    /// Supplied by the app itself, pointing at the exact conversation.
+    var deepLink: String? = nil
 
     /// What the row should say when the sender is in the title and the room in
     /// the subtitle, which is how Slack and Discord post.
@@ -181,14 +183,25 @@ final class InboxStore: ObservableObject {
         canRead = true
         guard !found.isEmpty else { return }
 
-        var known = Set(messages.map(\.id))
-        var added = false
-        for message in found where !known.contains(message.id) {
-            known.insert(message.id)
+        var index: [String: Int] = [:]
+        for (position, message) in messages.enumerated() { index[message.id] = position }
+
+        var changed = false
+        for message in found {
+            if let position = index[message.id] {
+                // Backfill anything captured before a field existed, rather than
+                // leaving old rows permanently missing it.
+                if messages[position].deepLink == nil, message.deepLink != nil {
+                    messages[position].deepLink = message.deepLink
+                    changed = true
+                }
+                continue
+            }
+            index[message.id] = messages.count
             messages.append(message)
-            added = true
+            changed = true
         }
-        guard added else { return }
+        guard changed else { return }
 
         messages.sort { $0.date > $1.date }
         if messages.count > maxKept { messages = Array(messages.prefix(maxKept)) }
@@ -229,6 +242,32 @@ final class InboxStore: ObservableObject {
         return out
     }
 
+    /// The deep link an app ships inside its own notification.
+    ///
+    /// Discord puts a `fallbackDeepLink` in the notification's `usda` payload,
+    /// pointing at the exact message: `discord://discord.com/channels/<guild>/<channel>/<message>`.
+    /// Using it means clicking a row lands on the right conversation with no
+    /// keystrokes and nothing to guess, which matters because Discord exposes no
+    /// accessibility tree to verify against.
+    ///
+    /// `usda` is an NSKeyedArchiver plist. It is read as a plain plist and
+    /// scanned for a URL rather than unarchived, which avoids having to allow
+    /// arbitrary classes.
+    static func deepLink(in userData: Data) -> String? {
+        guard let plist = try? PropertyListSerialization.propertyList(from: userData, format: nil),
+              let root = plist as? [String: Any],
+              let objects = root["$objects"] as? [Any] else { return nil }
+
+        for object in objects {
+            guard let candidate = object as? String,
+                  candidate.contains("://"),
+                  let url = URL(string: candidate),
+                  url.scheme != nil else { continue }
+            return candidate
+        }
+        return nil
+    }
+
     /// The payload is a binary plist: `titl`, `subt` and `body` live under `req`.
     static func parse(_ data: Data, app: String) -> InboxMessage? {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
@@ -250,8 +289,9 @@ final class InboxStore: ObservableObject {
         } else {
             identifier = "\(app)-\(stamp)-\(title)-\(body.prefix(24))"
         }
+        let link = (request["usda"] as? Data).flatMap { deepLink(in: $0) }
         return InboxMessage(id: identifier, app: app, title: title,
-                            subtitle: subtitle, body: body, date: date)
+                            subtitle: subtitle, body: body, date: date, deepLink: link)
     }
 
     // MARK: - State
@@ -282,6 +322,12 @@ final class InboxStore: ObservableObject {
     /// Opens the app the message came from, since the database is read-only and
     /// there is no way to reply from here.
     func openSource(_ message: InboxMessage) {
+        // The app's own deep link lands on the exact conversation. Launching the
+        // app instead just drops you wherever you happened to be.
+        if let link = message.deepLink, let url = URL(string: link) {
+            NSWorkspace.shared.open(url)
+            return
+        }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: message.app) else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }

@@ -302,6 +302,29 @@ enum Tests {
                                      subtitle: "", body: "hi", date: Date())
         check("Slack does not offer one yet either", InboxStore().replyRoute(for: slackNote) == nil)
 
+        print("deep links")
+        // Discord ships a fallbackDeepLink in its notification, pointing at the
+        // exact message. Using it means a click lands on the right conversation
+        // with no keystrokes, which matters because Discord exposes no
+        // accessibility tree to verify anything against.
+        func archived(_ value: String) -> Data {
+            let plist: [String: Any] = [
+                "$version": 100000,
+                "$archiver": "NSKeyedArchiver",
+                "$objects": ["$null", value],
+                "$top": ["root": 1],
+            ]
+            return (try? PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0)) ?? Data()
+        }
+        check("a deep link is pulled out of the archived payload",
+              InboxStore.deepLink(in: archived("discord://discord.com/channels/1/2/3"))
+                == "discord://discord.com/channels/1/2/3")
+        check("a payload with no link yields nil",
+              InboxStore.deepLink(in: archived("just some text")) == nil)
+        check("garbage yields nil rather than crashing",
+              InboxStore.deepLink(in: Data([0, 1, 2, 3])) == nil)
+        check("empty data yields nil", InboxStore.deepLink(in: Data()) == nil)
+
         print("inbox parsing")
         func payload(title: String, subtitle: String, body: String,
                      seconds: Double = 760000000, uuid: Data? = Data(repeating: 7, count: 16)) -> Data {
