@@ -29,6 +29,9 @@ final class InboxStore: ObservableObject {
     @Published private(set) var messages: [InboxMessage] = []
     @Published private(set) var canRead = false
     @Published private(set) var checkedAt: Date?
+    /// iMessage threads, refreshed alongside ingest, so a notification can be
+    /// matched back to something replyable.
+    @Published private(set) var threads: [Conversation] = []
 
     /// Bundle identifiers worth surfacing. Anything else is noise from the OS.
     static let knownApps: [String: String] = [
@@ -87,9 +90,31 @@ final class InboxStore: ObservableObject {
 
     func stop() { timer?.invalidate(); timer = nil }
 
+    /// A notification carries a sender NAME, not an address, so replying means
+    /// matching it back to a real thread. Name first, then handle, and only
+    /// recent threads so an old namesake cannot win.
+    func replyTarget(for message: InboxMessage) -> Conversation? {
+        guard message.app == "com.apple.mobilesms" || message.app == "com.apple.ichat" else { return nil }
+        let needle = message.title.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return nil }
+        if let byName = threads.first(where: { $0.name.lowercased() == needle }) { return byName }
+        if let byHandle = threads.first(where: { $0.handle.lowercased() == needle }) { return byHandle }
+        // Digits only, so "+1 (813) 555 0000" matches "+18135550000".
+        let digits = needle.filter(\.isNumber)
+        if digits.count >= 7 {
+            return threads.first { $0.handle.filter(\.isNumber).hasSuffix(digits.suffix(10)) }
+        }
+        return nil
+    }
+
+    func sendReply(_ body: String, to conversation: Conversation) throws {
+        try IMessage.send(body, to: conversation)
+    }
+
     /// Pulls anything new out of the system database and keeps it.
     func ingest() {
         checkedAt = Date()
+        if let found = IMessage.conversations(limit: 60) { threads = found }
         let found = readDatabase()
         guard let found else { canRead = false; return }
         canRead = true

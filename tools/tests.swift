@@ -238,6 +238,24 @@ enum Tests {
                  return false } catch { return true }
         }())
 
+        print("reply targeting")
+        // A notification carries a NAME. Replying needs a handle, so it has to be
+        // matched back to a real thread, and a wrong match sends to the wrong person.
+        let inboxStore = InboxStore()
+        func note(_ app: String, _ title: String) -> InboxMessage {
+            InboxMessage(id: UUID().uuidString, app: app, title: title, subtitle: "", body: "b", date: Date())
+        }
+        check("a Slack notification is never treated as replyable",
+              inboxStore.replyTarget(for: note("com.tinyspeck.slackmacgap", "Anyone")) == nil)
+        check("a WhatsApp notification is never treated as replyable",
+              inboxStore.replyTarget(for: note("net.whatsapp.whatsapp", "Anyone")) == nil)
+        check("a Discord notification is never treated as replyable",
+              inboxStore.replyTarget(for: note("com.hnc.discord", "Anyone")) == nil)
+        check("an empty sender never matches",
+              inboxStore.replyTarget(for: note("com.apple.mobilesms", "   ")) == nil)
+        check("a sender with no matching thread yields nothing rather than a guess",
+              inboxStore.replyTarget(for: note("com.apple.mobilesms", "Nobody By That Name At All")) == nil)
+
         print("inbox parsing")
         func payload(title: String, subtitle: String, body: String,
                      seconds: Double = 760000000, uuid: Data? = Data(repeating: 7, count: 16)) -> Data {

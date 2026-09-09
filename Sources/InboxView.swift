@@ -5,6 +5,12 @@ struct InboxView: View {
     @ObservedObject var inbox: InboxStore
     var onSaveAsNote: (InboxMessage) -> Void
 
+    /// Which row has its reply box open. Only one at a time.
+    @State private var replyingTo: String?
+    @State private var draft = ""
+    @State private var sending = false
+    @State private var failure: String?
+
     var body: some View {
         Group {
             if inbox.checkedAt == nil {
@@ -32,7 +38,17 @@ struct InboxView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         inbox.markRead(message.id)
-                        inbox.openSource(message)
+                        // A thread we can answer opens a reply box instead of
+                        // throwing the user into another app.
+                        if inbox.replyTarget(for: message) != nil {
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                replyingTo = replyingTo == message.id ? nil : message.id
+                                draft = ""
+                                failure = nil
+                            }
+                        } else {
+                            inbox.openSource(message)
+                        }
                     }
                     .contextMenu {
                         Button("Save as Note") { onSaveAsNote(message) }
@@ -40,10 +56,74 @@ struct InboxView: View {
                         Divider()
                         Button("Mute \(InboxStore.appName(message.app))") { inbox.toggleMute(message.app) }
                     }
+
+                    if replyingTo == message.id, let target = inbox.replyTarget(for: message) {
+                        replyBox(for: message, target: target)
+                    }
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+        }
+    }
+
+    private func replyBox(for message: InboxMessage, target: Conversation) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                TextField("Reply to \(target.name)", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1 ... 4)
+                    .font(.system(size: 12.5))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.primary.opacity(0.07))
+                    )
+                    .onSubmit { send(to: target, message: message) }
+                    .disabled(sending)
+
+                Button {
+                    send(to: target, message: message)
+                } label: {
+                    Image(systemName: sending ? "clock" : "arrow.up.circle.fill")
+                        .font(.system(size: 17))
+                }
+                .buttonStyle(.plain)
+                .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+            }
+
+            if let failure {
+                Text(failure)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Sends as \(target.service). Return to send.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 10)
+        .transition(.opacity)
+    }
+
+    private func send(to target: Conversation, message: InboxMessage) {
+        let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty, !sending else { return }
+        sending = true
+        failure = nil
+        do {
+            try inbox.sendReply(body, to: target)
+            draft = ""
+            sending = false
+            withAnimation(.easeOut(duration: 0.16)) { replyingTo = nil }
+        } catch {
+            sending = false
+            failure = error.localizedDescription
         }
     }
 
