@@ -6,6 +6,7 @@ struct Note: Identifiable, Equatable {
     var url: URL
     var text: String
     var modified: Date
+    var pinned: Bool = false
 
     var id: URL { url }
 
@@ -150,9 +151,11 @@ final class NoteStore: ObservableObject {
             // A file we cannot read is skipped, never rendered as an empty note.
             guard let body = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            loaded.append(Note(url: url, text: body, modified: values?.contentModificationDate ?? .distantPast))
+            loaded.append(Note(url: url, text: body,
+                               modified: values?.contentModificationDate ?? .distantPast,
+                               pinned: pinnedPaths.contains(url.path)))
         }
-        loaded.sort { $0.modified > $1.modified }
+        loaded.sort(by: Self.ordering)
 
         let previousText = text
         let previousID = selectedID
@@ -199,6 +202,8 @@ final class NoteStore: ObservableObject {
         if FileManager.default.fileExists(atPath: id.path) {
             try? FileManager.default.trashItem(at: id, resultingItemURL: nil)
         }
+        var paths = pinnedPaths
+        if paths.remove(id.path) != nil { pinnedPaths = paths }
         notes.removeAll { $0.url == id }
         if selectedID == id {
             if let first = notes.first { select(first.url) } else { newNote() }
@@ -240,8 +245,12 @@ final class NoteStore: ObservableObject {
         if desiredBase != id.deletingPathExtension().lastPathComponent {
             let candidate = uniqueURL(forBase: desiredBase, excluding: id)
             if exists {
-                if (try? FileManager.default.moveItem(at: id, to: candidate)) != nil { target = candidate }
+                if (try? FileManager.default.moveItem(at: id, to: candidate)) != nil {
+                    movePin(from: id, to: candidate)
+                    target = candidate
+                }
             } else {
+                movePin(from: id, to: candidate)
                 target = candidate
             }
         }
@@ -255,10 +264,46 @@ final class NoteStore: ObservableObject {
 
         let values = try? target.resourceValues(forKeys: [.contentModificationDateKey])
         ourWrites[target] = values?.contentModificationDate ?? Date()
-        notes[index] = Note(url: target, text: body, modified: Date())
+        notes[index] = Note(url: target, text: body, modified: Date(),
+                            pinned: pinnedPaths.contains(target.path))
         if target != id { selectedID = target }
-        notes.sort { $0.modified > $1.modified }
+        notes.sort(by: Self.ordering)
         savedAt = Date()
+    }
+
+    // MARK: - Pinning
+
+    /// Pins live in preferences, not in the file, so the markdown stays clean and
+    /// nothing appears in Obsidian that the user did not write.
+    private var pinnedPaths: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "pinnedNotes") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "pinnedNotes") }
+    }
+
+    /// Pinned first, then most recently touched. One comparator, used everywhere,
+    /// so the list can never sort two different ways in two places.
+    static func ordering(_ a: Note, _ b: Note) -> Bool {
+        if a.pinned != b.pinned { return a.pinned }
+        return a.modified > b.modified
+    }
+
+    func togglePin(_ id: URL) {
+        var paths = pinnedPaths
+        if paths.contains(id.path) { paths.remove(id.path) } else { paths.insert(id.path) }
+        pinnedPaths = paths
+        if let index = notes.firstIndex(where: { $0.url == id }) {
+            notes[index].pinned = paths.contains(id.path)
+            notes.sort(by: Self.ordering)
+        }
+    }
+
+    /// A rename would otherwise silently drop the pin, since it is keyed by path.
+    private func movePin(from old: URL, to new: URL) {
+        var paths = pinnedPaths
+        guard paths.contains(old.path) else { return }
+        paths.remove(old.path)
+        paths.insert(new.path)
+        pinnedPaths = paths
     }
 
     // MARK: - Filenames

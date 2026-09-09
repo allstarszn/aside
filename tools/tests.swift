@@ -105,6 +105,36 @@ enum Tests {
         store.delete(store.selectedID!)
         check("deleting removes the file", !FileManager.default.fileExists(atPath: dir.appendingPathComponent("Shared title 2.md").path))
 
+        print("pinning and ordering")
+        let old = Date(timeIntervalSinceNow: -9000)
+        let recent = Date()
+        let pinnedOld = Note(url: URL(fileURLWithPath: "/tmp/a.md"), text: "A", modified: old, pinned: true)
+        let plainNew = Note(url: URL(fileURLWithPath: "/tmp/b.md"), text: "B", modified: recent, pinned: false)
+        check("a pinned note outranks a newer unpinned one", NoteStore.ordering(pinnedOld, plainNew))
+        check("and the reverse is false", !NoteStore.ordering(plainNew, pinnedOld))
+        let pinnedNew = Note(url: URL(fileURLWithPath: "/tmp/c.md"), text: "C", modified: recent, pinned: true)
+        check("two pinned notes fall back to recency", NoteStore.ordering(pinnedNew, pinnedOld))
+
+        let pinDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-pin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pinDir) }
+        UserDefaults.standard.set(true, forKey: "seededWelcome")
+        UserDefaults.standard.removeObject(forKey: "pinnedNotes")
+        let pinStore = NoteStore(directory: pinDir)
+        pinStore.text = "Keep me"
+        pinStore.flushSave()
+        pinStore.togglePin(pinStore.selectedID!)
+        check("pinning sticks", pinStore.notes.first(where: { $0.title == "Keep me" })?.pinned == true)
+
+        // Renaming is where a path-keyed pin silently disappears.
+        pinStore.text = "Keep me renamed"
+        pinStore.flushSave()
+        check("the pin survives a retitle",
+              pinStore.notes.first(where: { $0.title == "Keep me renamed" })?.pinned == true)
+        pinStore.delete(pinStore.selectedID!)
+        check("deleting clears the stored pin",
+              (UserDefaults.standard.stringArray(forKey: "pinnedNotes") ?? []).isEmpty)
+        UserDefaults.standard.removeObject(forKey: "pinnedNotes")
+
         print("folder switching")
         let folderA = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-a-\(UUID().uuidString)")
         let folderB = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-b-\(UUID().uuidString)")

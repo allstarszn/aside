@@ -26,8 +26,13 @@ Command Line Tools only. No Xcode, no Homebrew, no dependencies.
 | Move the tab | Drag it anywhere, including onto another display |
 | Pick a display | The "..." menu, under "Show On" |
 | New note | The pencil icon |
+| Search | The list icon, then type |
+| Resize | Drag the drawer's inboard edge |
 | Switch notes | The list icon, then click a note |
 | Delete a note | Right-click it in the list, or the "..." menu (goes to Trash) |
+| Pin a note | Right-click it in the list. Pinned notes sort to the top |
+| Links | Click any URL in a note |
+| Checkboxes | Click a `- [ ]` to tick it. Ticked lines dim |
 | Open at login | The "..." menu |
 | Quit | The "..." menu |
 
@@ -72,15 +77,13 @@ without forgetting the preference, so plugging back in restores it.
 
 ## Where notes live
 
-`~/Desktop/claude-workspace/Sirius Vault/aside/*.md`
+`~/Documents/Aside/*.md` by default. Change it with **Notes Folder...** in the
+"..." menu, or point it at an Obsidian vault so your notes live alongside the
+rest of your writing.
 
-To point it somewhere else:
-
-```
-defaults write com.espyagency.aside notesDirectory ~/some/other/folder
-```
-
-Edits made in Obsidian are picked up the next time the drawer opens.
+Edits you make elsewhere show up here **live**, without reopening the drawer.
+If you are mid-sentence when an outside edit lands, your typing wins: the app
+never overwrites what you have not finished.
 
 ## Notes on the build
 

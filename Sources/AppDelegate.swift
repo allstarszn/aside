@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import ServiceManagement
 
 // MARK: - Layout constants
 
@@ -20,52 +19,6 @@ enum Layout {
     /// Apple's standard "smooth out" curve. Same feel as system slide-outs.
     static let curve = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
     static let duration: TimeInterval = 0.3
-}
-
-// MARK: - Login item
-
-enum LoginItem {
-    static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
-
-    static var statusName: String {
-        switch SMAppService.mainApp.status {
-        case .enabled: return "enabled"
-        case .notRegistered: return "notRegistered"
-        case .notFound: return "notFound"
-        case .requiresApproval: return "requiresApproval"
-        @unknown default: return "unknown"
-        }
-    }
-
-    static func setEnabled(_ on: Bool) {
-        do {
-            if on {
-                guard SMAppService.mainApp.status != .enabled else { return }
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            NSLog("aside: login item change failed: \(error)")
-        }
-    }
-
-    /// Turns itself on the first time the installed copy runs. A build in
-    /// `build/` is left alone: registering a path that the next `./build.sh`
-    /// deletes would leave a broken login item behind.
-    static func enableOnFirstRun() {
-        let defaults = UserDefaults.standard
-        let path = Bundle.main.bundlePath
-        let isDevBuild = path.contains("/build/")
-
-        if !isDevBuild && !defaults.bool(forKey: "loginItemConfigured") {
-            setEnabled(true)
-            defaults.set(true, forKey: "loginItemConfigured")
-        }
-        // Written every launch so the install script can report the real status.
-        defaults.set(statusName, forKey: "loginItemStatus")
-        defaults.set(path, forKey: "runningFrom")
-    }
 }
 
 // MARK: - Window
@@ -166,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tabWrap: NSView!
     private var cardWrap: NSView!
     private weak var resizeHandle: ResizeHandle?
+    private var menuBar: MenuBarItem?
     private var store: NoteStore!
     private var isExpanded = false
 
@@ -185,7 +139,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         screen = ScreenChoice.shared.resolvedScreen()
         ScreenChoice.shared.onSelect = { [weak self] id in self?.moveToDisplay(id) }
 
-        LoginItem.enableOnFirstRun()
+        if UserDefaults.standard.object(forKey: "showMenuBarItem") as? Bool ?? true {
+            menuBar = MenuBarItem { [weak self] in self?.toggle() }
+            menuBar?.show()
+        }
 
         buildWindow()
         layoutPieces(animated: false)
@@ -211,6 +168,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Lets the user put their notes anywhere, including inside a notes vault.
+    var menuBarVisible: Bool { menuBar != nil }
+
+    func setMenuBarVisible(_ visible: Bool) {
+        UserDefaults.standard.set(visible, forKey: "showMenuBarItem")
+        if visible {
+            if menuBar == nil { menuBar = MenuBarItem { [weak self] in self?.toggle() } }
+            menuBar?.show()
+        } else {
+            menuBar?.hide()
+            menuBar = nil
+        }
+    }
+
     func chooseNotesFolder() {
         let panelWasOpen = isExpanded
         let open = NSOpenPanel()

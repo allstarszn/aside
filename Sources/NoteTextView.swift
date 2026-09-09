@@ -30,6 +30,9 @@ struct NoteTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
+        textView.isAutomaticDataDetectionEnabled = false
+        textView.displaysLinkToolTips = true
+        textView.linkTextAttributes = [:]   // styling is applied per range instead
         textView.string = text
         context.coordinator.textView = textView
         context.coordinator.applyStyling()
@@ -110,8 +113,80 @@ struct NoteTextView: NSViewRepresentable {
                 storage.setAttributes(attributes(inTitle: true),
                                       range: NSRange(location: 0, length: titleLength))
             }
+            styleLinks(in: storage, string: string)
+            styleCheckboxes(in: storage, string: string)
             storage.endEditing()
             textView.typingAttributes = attributes(inTitle: isInTitle(textView))
+        }
+
+        /// Real clickable links, so a note can hold a URL and still be plain text.
+        private func styleLinks(in storage: NSTextStorage, string: NSString) {
+            guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+            else { return }
+            let full = NSRange(location: 0, length: string.length)
+            detector.enumerateMatches(in: string as String, range: full) { match, _, _ in
+                guard let match, let url = match.url else { return }
+                storage.addAttributes([
+                    .link: url,
+                    .foregroundColor: NSColor.linkColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                ], range: match.range)
+            }
+        }
+
+        /// `- [ ]` and `- [x]` become clickable. The link carries the box's own
+        /// location, which is the only thing that survives the text moving around.
+        private func styleCheckboxes(in storage: NSTextStorage, string: NSString) {
+            guard let regex = try? NSRegularExpression(pattern: "^[ \t]*[-*+] \\[([ xX])\\]",
+                                                       options: [.anchorsMatchLines]) else { return }
+            let full = NSRange(location: 0, length: string.length)
+            regex.enumerateMatches(in: string as String, range: full) { match, _, _ in
+                guard let match, match.numberOfRanges > 1 else { return }
+                let markRange = match.range(at: 1)
+                let checked = string.substring(with: markRange).lowercased() == "x"
+                guard let url = URL(string: "aside-toggle:\(markRange.location)") else { return }
+
+                storage.addAttributes([
+                    .link: url,
+                    .foregroundColor: checked ? NSColor.controlAccentColor : NSColor.secondaryLabelColor,
+                    .underlineStyle: 0,
+                ], range: match.range)
+
+                // Dim the finished item, the way every task list does.
+                if checked {
+                    let lineEnd = string.range(of: "\n", options: [],
+                                               range: NSRange(location: match.range.upperBound,
+                                                              length: string.length - match.range.upperBound))
+                    let end = lineEnd.location == NSNotFound ? string.length : lineEnd.location
+                    let textRange = NSRange(location: match.range.upperBound,
+                                            length: end - match.range.upperBound)
+                    if textRange.length > 0 {
+                        storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor],
+                                              range: textRange)
+                    }
+                }
+            }
+        }
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let url = link as? URL ?? URL(string: "\(link)") else { return false }
+            guard url.scheme == "aside-toggle" else {
+                NSWorkspace.shared.open(url)
+                return true
+            }
+            guard let location = Int(url.absoluteString.replacingOccurrences(of: "aside-toggle:", with: "")),
+                  let storage = textView.textStorage,
+                  location < storage.length else { return true }
+
+            let current = (storage.string as NSString).substring(with: NSRange(location: location, length: 1))
+            let replacement = current.lowercased() == "x" ? " " : "x"
+            let selection = textView.selectedRange()
+
+            storage.replaceCharacters(in: NSRange(location: location, length: 1), with: replacement)
+            parent.text = textView.string
+            applyStyling()
+            textView.setSelectedRange(NSRange(location: min(selection.location, textView.string.count), length: 0))
+            return true
         }
     }
 }

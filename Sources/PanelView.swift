@@ -182,6 +182,7 @@ struct PanelView: View {
                             NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
                         }
                         .contextMenu {
+                            Button(note.pinned ? "Unpin" : "Pin to Top") { store.togglePin(note.url) }
                             Button("Reveal in Finder") {
                                 NSWorkspace.shared.activateFileViewerSelecting([note.url])
                             }
@@ -239,9 +240,9 @@ struct PanelView: View {
                     }
                     Divider()
                 }
-                Toggle("Open at Login", isOn: Binding(
-                    get: { LoginItem.isEnabled },
-                    set: { LoginItem.setEnabled($0) }
+                Toggle("Show in Menu Bar", isOn: Binding(
+                    get: { (NSApp.delegate as? AppDelegate)?.menuBarVisible ?? false },
+                    set: { (NSApp.delegate as? AppDelegate)?.setMenuBarVisible($0) }
                 ))
                 Divider()
                 Button("Quit Aside") { NSApp.terminate(nil) }
@@ -293,9 +294,16 @@ private struct NoteRow: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(note.title)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if note.pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9))
+                            .rotationEffect(.degrees(45))
+                    }
+                    Text(note.title)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .lineLimit(1)
+                }
                 Text(note.snippet)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
