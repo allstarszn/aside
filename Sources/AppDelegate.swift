@@ -5,7 +5,13 @@ import ServiceManagement
 // MARK: - Layout constants
 
 enum Layout {
-    static let panelWidth: CGFloat = 400
+    static let defaultPanelWidth: CGFloat = 400
+    static let minPanelWidth: CGFloat = 300
+    static let maxPanelWidth: CGFloat = 760
+
+    static func clampWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, minPanelWidth), maxPanelWidth)
+    }
     static let panelMaxHeight: CGFloat = 660
     static let tabWidth: CGFloat = 26
     static let tabHeight: CGFloat = 104
@@ -92,6 +98,21 @@ final class ContainerView: NSView {
     }
 }
 
+/// The strip down the drawer's inboard edge that resizes it.
+final class ResizeHandle: NSView {
+    var onDrag: ((NSPoint) -> Void)?
+    var onFinish: (() -> Void)?
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDragged(with event: NSEvent) { onDrag?(NSEvent.mouseLocation) }
+    override func mouseUp(with event: NSEvent) { onFinish?() }
+    // Swallow the press so it never reaches the editor underneath.
+    override func mouseDown(with event: NSEvent) {}
+}
+
 /// The pull tab. Click toggles the drawer, vertical drag repositions it.
 final class TabView: NSView {
     var onClick: (() -> Void)?
@@ -144,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var container: ContainerView!
     private var tabWrap: NSView!
     private var cardWrap: NSView!
+    private weak var resizeHandle: ResizeHandle?
     private var store: NoteStore!
     private var isExpanded = false
 
@@ -151,9 +173,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tabFraction: CGFloat = 0.5
     private var screen: NSScreen!
 
+    /// How wide the drawer is. Dragging its inboard edge changes it.
+    private var panelWidth: CGFloat = Layout.defaultPanelWidth
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         store = NoteStore(directory: Self.notesDirectory())
         tabFraction = CGFloat(UserDefaults.standard.object(forKey: "tabFraction") as? Double ?? 0.5)
+        let savedWidth = CGFloat(UserDefaults.standard.object(forKey: "panelWidth") as? Double
+                                 ?? Double(Layout.defaultPanelWidth))
+        panelWidth = Layout.clampWidth(savedWidth)
         screen = ScreenChoice.shared.resolvedScreen()
         ScreenChoice.shared.onSelect = { [weak self] id in self?.moveToDisplay(id) }
 
@@ -174,16 +202,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Notes location
 
-    private static func notesDirectory() -> URL {
-        if let override = UserDefaults.standard.string(forKey: "notesDirectory") {
-            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+    static func notesDirectory() -> URL {
+        if let chosen = UserDefaults.standard.string(forKey: "notesDirectory") {
+            return URL(fileURLWithPath: (chosen as NSString).expandingTildeInPath)
         }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let vault = home
-            .appendingPathComponent("Desktop/claude-workspace/Sirius Vault/aside", isDirectory: true)
-        let vaultRoot = vault.deletingLastPathComponent()
-        if FileManager.default.fileExists(atPath: vaultRoot.path) { return vault }
-        return home.appendingPathComponent("Documents/Aside", isDirectory: true)
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/Aside", isDirectory: true)
+    }
+
+    /// Lets the user put their notes anywhere, including inside a notes vault.
+    func chooseNotesFolder() {
+        let panelWasOpen = isExpanded
+        let open = NSOpenPanel()
+        open.canChooseFiles = false
+        open.canChooseDirectories = true
+        open.canCreateDirectories = true
+        open.allowsMultipleSelection = false
+        open.prompt = "Use This Folder"
+        open.message = "Choose where aside keeps your notes."
+        open.directoryURL = store.directory
+
+        NSApp.activate()
+        guard open.runModal() == .OK, let url = open.url else { return }
+        store.changeDirectory(to: url)
+        if panelWasOpen { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
     }
 
     // MARK: Window construction
@@ -217,6 +259,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingView(rootView: PanelView(store: store, onClose: { [weak self] in self?.collapse() }))
         hosting.autoresizingMask = [.width, .height]
         cardBlur.addSubview(hosting)
+        let resize = ResizeHandle(frame: .zero)
+        resize.autoresizingMask = [.height]
+        resize.onDrag = { [weak self] pointer in self?.resizePanel(to: pointer) }
+        resize.onFinish = { [weak self] in
+            guard let self else { return }
+            UserDefaults.standard.set(Double(self.panelWidth), forKey: "panelWidth")
+        }
+        cardBlur.addSubview(resize)
+        resizeHandle = resize
+
         container.addSubview(cardWrap)
         container.cardHost = cardWrap
 
@@ -270,8 +322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func containerFrame() -> NSRect {
         let visible = screen.visibleFrame
-        return NSRect(x: visible.maxX - Layout.panelWidth, y: visible.minY,
-                      width: Layout.panelWidth, height: visible.height)
+        return NSRect(x: visible.maxX - panelWidth, y: visible.minY,
+                      width: panelWidth, height: visible.height)
     }
 
     /// Re-pins the window to `screen` and keeps the tab at the same relative height.
@@ -301,14 +353,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let usable = max(height - Layout.tabHeight, 1)
         let tabY = (usable * tabFraction).rounded()
-        let tabFrame = NSRect(x: Layout.panelWidth - Layout.tabWidth, y: tabY,
+        let tabFrame = NSRect(x: panelWidth - Layout.tabWidth, y: tabY,
                               width: Layout.tabWidth, height: Layout.tabHeight)
 
         // Card centers on the tab, then gets clamped inside the screen.
         let wantedY = tabFrame.midY - cardHeight / 2
         let cardY = min(max(wantedY, 8), max(height - cardHeight - 8, 8))
-        let cardFrame = NSRect(x: isExpanded ? 0 : Layout.panelWidth, y: cardY,
-                               width: Layout.panelWidth, height: cardHeight)
+        let cardFrame = NSRect(x: isExpanded ? 0 : panelWidth, y: cardY,
+                               width: panelWidth, height: cardHeight)
+
+        resizeHandle?.frame = NSRect(x: 0, y: 0, width: 8, height: cardHeight)
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -345,6 +399,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutPieces(animated: false)
     }
 
+    /// The drawer is anchored to the right edge, so its width is the distance
+    /// from the pointer to that edge.
+    private func resizePanel(to pointer: NSPoint) {
+        let wanted = screen.visibleFrame.maxX - pointer.x
+        let clamped = Layout.clampWidth(wanted)
+        guard abs(clamped - panelWidth) > 0.5 else { return }
+        panelWidth = clamped
+        panel.setFrame(containerFrame(), display: true)
+        container.frame = NSRect(origin: .zero, size: panel.frame.size)
+        layoutPieces(animated: false)
+    }
+
     private func toggle() { isExpanded ? collapse() : expand() }
 
     private func expand() {
@@ -378,7 +444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             context.duration = Layout.duration
             context.timingFunction = Layout.curve
             cardWrap.animator().alphaValue = 0
-            cardWrap.animator().setFrameOrigin(NSPoint(x: Layout.panelWidth, y: cardWrap.frame.origin.y))
+            cardWrap.animator().setFrameOrigin(NSPoint(x: panelWidth, y: cardWrap.frame.origin.y))
             tabWrap.animator().alphaValue = 1
         }, completionHandler: {
             NSApp.deactivate()

@@ -48,6 +48,11 @@ enum Tests {
         check("no displays yields nothing",
               ScreenResolver.choose(savedID: 2, savedName: nil, from: []) == nil)
 
+        print("panel width")
+        check("a saved width is kept", Layout.clampWidth(520) == 520)
+        check("too narrow is clamped up", Layout.clampWidth(50) == Layout.minPanelWidth)
+        check("too wide is clamped down", Layout.clampWidth(5000) == Layout.maxPanelWidth)
+
         print("note files")
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-tests-\(UUID().uuidString)")
         let store = NoteStore(directory: dir)
@@ -99,6 +104,59 @@ enum Tests {
 
         store.delete(store.selectedID!)
         check("deleting removes the file", !FileManager.default.fileExists(atPath: dir.appendingPathComponent("Shared title 2.md").path))
+
+        print("folder switching")
+        let folderA = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-a-\(UUID().uuidString)")
+        let folderB = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-b-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folderA); try? FileManager.default.removeItem(at: folderB) }
+
+        UserDefaults.standard.set(true, forKey: "seededWelcome")   // keep the seed out of these checks
+        let moving = NoteStore(directory: folderA)
+        moving.text = "Lives in A"
+        moving.flushSave()
+        check("the note landed in the first folder",
+              FileManager.default.fileExists(atPath: folderA.appendingPathComponent("Lives in A.md").path))
+
+        moving.changeDirectory(to: folderB)
+        check("the store follows the new folder", moving.directory == folderB)
+        check("the old folder is left alone",
+              FileManager.default.fileExists(atPath: folderA.appendingPathComponent("Lives in A.md").path))
+        check("the preference is written", (UserDefaults.standard.string(forKey: "notesDirectory") ?? "") == folderB.path)
+
+        moving.text = "Lives in B"
+        moving.flushSave()
+        check("new notes go to the new folder",
+              FileManager.default.fileExists(atPath: folderB.appendingPathComponent("Lives in B.md").path))
+
+        print("external edits")
+        let watched = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-watch-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: watched) }
+        let live = NoteStore(directory: watched)
+
+        // Somebody writes into the folder from Obsidian while aside is open.
+        try? "Written by Obsidian\n\nhello".write(
+            to: watched.appendingPathComponent("Written by Obsidian.md"), atomically: true, encoding: .utf8)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        check("an outside edit is picked up without reopening",
+              live.notes.contains { $0.title == "Written by Obsidian" })
+        check("its text is read, not left blank",
+              live.notes.contains { $0.title == "Written by Obsidian" && $0.text.contains("hello") })
+
+        // A second one, so the count really is tracking the folder.
+        let settled = live.notes.count
+        try? "Second outside note".write(
+            to: watched.appendingPathComponent("Second outside note.md"), atomically: true, encoding: .utf8)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        check("a second outside note also arrives", live.notes.count == settled + 1)
+
+        // Deleting from outside should remove it, not leave a ghost.
+        try? FileManager.default.removeItem(at: watched.appendingPathComponent("Second outside note.md"))
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        check("an outside delete is reflected too",
+              !live.notes.contains { $0.title == "Second outside note" })
+
+        UserDefaults.standard.removeObject(forKey: "notesDirectory")
+        UserDefaults.standard.removeObject(forKey: "seededWelcome")
 
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         return failures

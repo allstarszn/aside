@@ -49,13 +49,84 @@ final class NoteStore: ObservableObject {
         }
     }
 
-    let directory: URL
+    private(set) var directory: URL
     private var isLoading = false
     private var saveTimer: Timer?
+    private var watcher: FolderWatcher?
+    /// Modification dates this app is responsible for, so its own saves do not
+    /// look like somebody editing the file in Obsidian.
+    private var ourWrites: [URL: Date] = [:]
 
     init(directory: URL) {
         self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        reload()
+        seedWelcomeNoteIfEmpty()
+        startWatching()
+    }
+
+    /// Points the app at a different folder, saving anything outstanding first.
+    func changeDirectory(to newDirectory: URL) {
+        guard newDirectory != directory else { return }
+        flushSave()
+        watcher?.stop()
+        directory = newDirectory
+        UserDefaults.standard.set(newDirectory.path, forKey: "notesDirectory")
+        try? FileManager.default.createDirectory(at: newDirectory, withIntermediateDirectories: true)
+        selectedID = nil
+        ourWrites.removeAll()
+        reload()
+        seedWelcomeNoteIfEmpty()
+        startWatching()
+    }
+
+    private func startWatching() {
+        watcher = FolderWatcher { [weak self] in self?.absorbExternalChanges() }
+        watcher?.watch(directory)
+    }
+
+    /// Adopts edits made elsewhere, without ever throwing away what is being typed.
+    private func absorbExternalChanges() {
+        let editing = saveTimer != nil          // a pending save means active typing
+        let openNote = selectedID
+        let typedText = text
+
+        reload()
+
+        if editing, let openNote, notes.contains(where: { $0.url == openNote }) {
+            // Keep the in-progress edit. It is newer than anything on disk.
+            isLoading = true
+            selectedID = openNote
+            text = typedText
+            isLoading = false
+        }
+    }
+
+    /// A folder with nothing in it gives a new user nothing to look at.
+    private func seedWelcomeNoteIfEmpty() {
+        let existing = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        guard !existing.contains(where: { $0.hasSuffix(".md") }) else { return }
+        guard !UserDefaults.standard.bool(forKey: "seededWelcome") else { return }
+        UserDefaults.standard.set(true, forKey: "seededWelcome")
+
+        let welcome = """
+        Welcome to aside.
+
+        This is a note. The first line is its title, and it becomes the filename.
+
+        Everything you write here is a plain markdown file on disk, so you can open
+        the same notes in Obsidian, iA Writer, or anything else. Edits you make
+        elsewhere show up here automatically.
+
+        - click the tab to open and close this panel
+        - drag the tab to move it, including onto another display
+        - the pencil starts a new note, the list icon shows all of them
+        - the ... menu has the notes folder and the rest of the settings
+        """
+        isLoading = true
+        let url = uniqueURL(forBase: "Welcome to aside")
+        try? welcome.write(to: url, atomically: true, encoding: .utf8)
+        isLoading = false
         reload()
     }
 
@@ -182,6 +253,8 @@ final class NoteStore: ObservableObject {
             return
         }
 
+        let values = try? target.resourceValues(forKeys: [.contentModificationDateKey])
+        ourWrites[target] = values?.contentModificationDate ?? Date()
         notes[index] = Note(url: target, text: body, modified: Date())
         if target != id { selectedID = target }
         notes.sort { $0.modified > $1.modified }

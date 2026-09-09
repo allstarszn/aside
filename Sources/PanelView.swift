@@ -7,6 +7,7 @@ struct PanelView: View {
 
     @ObservedObject private var screens = ScreenChoice.shared
     @State private var showingList: Bool
+    @State private var query = ""
 
     init(store: NoteStore, onClose: @escaping () -> Void, startWithList: Bool = false) {
         self.store = store
@@ -63,6 +64,7 @@ struct PanelView: View {
                        help: showingList ? "Back to note" : "All notes",
                        active: showingList) {
                 withAnimation(.easeOut(duration: 0.18)) { showingList.toggle() }
+                if !showingList { query = "" }
                 if !showingList { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
             }
         }
@@ -106,12 +108,64 @@ struct PanelView: View {
 
     // MARK: - Note list
 
+    /// Title first, then body, so a title match is not buried by a body match.
+    private var visibleNotes: [Note] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return store.notes }
+        let needle = trimmed.lowercased()
+        let byTitle = store.notes.filter { $0.title.lowercased().contains(needle) }
+        let byBody = store.notes.filter {
+            !$0.title.lowercased().contains(needle) && $0.text.lowercased().contains(needle)
+        }
+        return byTitle + byBody
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.tertiary)
+            TextField("Search", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+
     private var noteList: some View {
+        VStack(spacing: 0) {
+        searchField
+        if visibleNotes.isEmpty {
+            VStack(spacing: 4) {
+                Text("No notes match")
+                    .font(.system(size: 13, weight: .medium))
+                Text("\u{201c}\(query)\u{201d}")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(Array(store.notes.enumerated()), id: \.element.id) { index, note in
+                ForEach(Array(visibleNotes.enumerated()), id: \.element.id) { index, note in
                     let isSelected = note.url == store.selectedID
-                    let previousSelected = index > 0 && store.notes[index - 1].url == store.selectedID
+                    let previousSelected = index > 0 && visibleNotes[index - 1].url == store.selectedID
                     VStack(spacing: 0) {
                         if index > 0 {
                             Divider()
@@ -123,6 +177,7 @@ struct PanelView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             store.select(note.url)
+                            query = ""
                             withAnimation(.easeOut(duration: 0.18)) { showingList = false }
                             NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
                         }
@@ -139,6 +194,8 @@ struct PanelView: View {
             .padding(.vertical, 8)
         }
         .background(Color.clear)
+        .opacity(visibleNotes.isEmpty ? 0 : 1)
+        }
     }
 
     // MARK: - Footer
@@ -161,6 +218,9 @@ struct PanelView: View {
 
             Menu {
                 Button("Reveal in Finder") { store.revealInFinder() }
+                Button("Notes Folder...") {
+                    (NSApp.delegate as? AppDelegate)?.chooseNotesFolder()
+                }
                 Button("Move Note to Trash", role: .destructive) {
                     if let id = store.selectedID { store.delete(id) }
                 }

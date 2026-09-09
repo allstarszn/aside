@@ -33,7 +33,7 @@ for (name, body) in samples {
 }
 
 let store = NoteStore(directory: tmp)
-let size = NSSize(width: Layout.panelWidth, height: 520)
+let size = NSSize(width: Layout.defaultPanelWidth, height: 520)
 
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                       styleMask: [.borderless], backing: .buffered, defer: false)
