@@ -86,6 +86,16 @@ not an archive, so aside keeps its own copy as messages arrive: it only sees wha
 lands while it is running. And it can only read, so replying means opening the
 source app. Mute an app from the right-click menu.
 
+## Slack
+
+Slack replies go through its official API with a **user token**, so they post
+under your own name with no "APP" badge. Bot tokens are what produce that badge.
+
+Create the app at [api.slack.com/apps](https://api.slack.com/apps) with **From a
+manifest** and paste `slack-app-manifest.yaml`, then Install to Workspace. The
+token it gives you starts `xoxp-` and is stored in your Keychain, not in a
+preferences file.
+
 ## Displays
 
 Drag the tab and it follows your pointer, re-pinning to the right edge of

@@ -1,0 +1,35 @@
+# The Slack app aside connects to.
+#
+# Create it at api.slack.com/apps with "From a manifest", paste this, then
+# Install to Workspace. The resulting User OAuth Token starts xoxp-.
+#
+# Everything below is a USER scope, deliberately. A user token posts under the
+# person's own name; a bot token posts as the app with an "APP" badge next to
+# it, which is not what anyone wants their reply to look like.
+display_information:
+  name: aside
+  description: Your notes and every messenger, on the edge of your screen
+  background_color: "#12110f"
+
+oauth_config:
+  scopes:
+    user:
+      # Post as the person.
+      - chat:write
+      # Turn a channel NAME from a notification into the ID the API needs.
+      - channels:read
+      - groups:read
+      - im:read
+      - mpim:read
+      # Read real conversation history rather than only what a notification said.
+      # Included now so the app does not have to be reinstalled to add them later.
+      - channels:history
+      - groups:history
+      - im:history
+      - mpim:history
+
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+  is_hosted: false
