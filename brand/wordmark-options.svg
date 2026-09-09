@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" width="1400" height="1400" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <clipPath id="sc"><rect x="10" y="26" width="72" height="52" rx="13"/></clipPath>
+    <!-- M1: the flush two-tone screen (what exists today) -->
+    <g id="m1">
+      <g clip-path="url(#sc)">
+        <rect x="10" y="26" width="72" height="52" fill="#F6F2EA"/>
+        <rect x="58" y="26" width="24" height="52" fill="#3FA47C"/>
+      </g>
+    </g>
+    <!-- M2: the drawer pulled out past the frame -->
+    <g id="m2">
+      <rect x="10" y="26" width="66" height="52" rx="13" fill="#F6F2EA"/>
+      <rect x="56" y="34" width="36" height="36" rx="12" fill="#3FA47C"/>
+    </g>
+  </defs>
+
+  <rect width="1400" height="1400" fill="#12110F"/>
+
+  <text x="64" y="76" font-size="30" font-weight="600" fill="#F6F2EA">You are right, and it is structural</text>
+  <text x="64" y="112" font-size="17" fill="#8A857D">Both are lowercase, one word, trailing punctuation in the accent color. Same lockup, different hue.</text>
+
+  <!-- The collision -->
+  <rect x="64" y="140" width="612" height="150" rx="16" fill="#1B1916" stroke="#3A241E"/>
+  <text x="96" y="216" font-size="56" font-weight="600" letter-spacing="-2" fill="#F6F2EA">commit<tspan fill="#8b5cf6">.</tspan></text>
+  <text x="96" y="252" font-size="14" fill="#8A857D">Geist. Its real device is the o, drawn as a git node.</text>
+
+  <rect x="700" y="140" width="612" height="150" rx="16" fill="#1B1916" stroke="#3A241E"/>
+  <text x="732" y="216" font-size="56" font-weight="600" letter-spacing="-2" fill="#F6F2EA">aside<tspan fill="#3FA47C">.</tspan></text>
+  <text x="732" y="252" font-size="14" fill="#C4553D">Today. Device is a colored dot, so it reads as the same idea.</text>
+
+  <rect x="64" y="330" width="1248" height="1" fill="#2A2823"/>
+  <text x="64" y="382" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">THREE WAYS OUT</text>
+
+  <!-- A -->
+  <rect x="64" y="404" width="400" height="212" rx="16" fill="#1B1916" stroke="#2F5D4A"/>
+  <text x="96" y="486" font-size="54" font-weight="600" letter-spacing="-1.5" fill="#F6F2EA"><tspan font-size="66" font-weight="500" fill="#3FA47C">(</tspan>aside<tspan font-size="66" font-weight="500" fill="#3FA47C">)</tspan></text>
+  <text x="96" y="524" font-size="15" font-weight="600" fill="#7FD3AC">A. Parentheses, SF Pro</text>
+  <text x="96" y="550" font-size="14" fill="#8A857D">A parenthesis IS an aside. Encloses</text>
+  <text x="96" y="572" font-size="14" fill="#8A857D">instead of terminating, so the shape</text>
+  <text x="96" y="594" font-size="14" fill="#8A857D">of the lockup stops matching commit.</text>
+
+  <!-- B -->
+  <rect x="488" y="404" width="400" height="212" rx="16" fill="#1B1916" stroke="#2A2823"/>
+  <text x="520" y="486" font-size="54" font-family="'New York', Georgia, serif" fill="#F6F2EA">aside</text>
+  <text x="520" y="524" font-size="15" font-weight="600" fill="#C9C4BB">B. New York serif, no punctuation</text>
+  <text x="520" y="550" font-size="14" fill="#8A857D">Apple's own serif, already on the Mac.</text>
+  <text x="520" y="572" font-size="14" fill="#8A857D">Editorial voice against commit.'s</text>
+  <text x="520" y="594" font-size="14" fill="#8A857D">technical one. Different at a glance.</text>
+
+  <!-- C -->
+  <rect x="912" y="404" width="400" height="212" rx="16" fill="#1B1916" stroke="#2A2823"/>
+  <text x="944" y="486" font-size="54" font-family="'New York', Georgia, serif" fill="#F6F2EA"><tspan font-size="68" fill="#3FA47C">(</tspan>aside<tspan font-size="68" fill="#3FA47C">)</tspan></text>
+  <text x="944" y="524" font-size="15" font-weight="600" fill="#C9C4BB">C. Both</text>
+  <text x="944" y="550" font-size="14" fill="#8A857D">Furthest from commit. Risks reading</text>
+  <text x="944" y="572" font-size="14" fill="#8A857D">bookish rather than like a tool you</text>
+  <text x="944" y="594" font-size="14" fill="#8A857D">keep open all day.</text>
+
+  <rect x="64" y="660" width="1248" height="1" fill="#2A2823"/>
+  <text x="64" y="712" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">AND THE MARK, SINCE YOU SAID IT COULD BE BETTER</text>
+
+  <rect x="64" y="736" width="180" height="180" rx="18" fill="#1B1916"/>
+  <g transform="translate(101, 786) scale(1.05)"><use href="#m1"/></g>
+  <rect x="260" y="800" width="52" height="52" rx="8" fill="#1B1916"/>
+  <g transform="translate(268, 815) scale(0.24)"><use href="#m1"/></g>
+  <text x="64" y="946" font-size="15" font-weight="600" fill="#C9C4BB">Today: flush two-tone</text>
+  <text x="64" y="970" font-size="14" fill="#C4553D">This is the stock sidebar icon macOS already ships. That is why it feels generic.</text>
+
+  <rect x="700" y="736" width="180" height="180" rx="18" fill="#1B1916"/>
+  <g transform="translate(737, 786) scale(1.05)"><use href="#m2"/></g>
+  <rect x="896" y="800" width="52" height="52" rx="8" fill="#1B1916"/>
+  <g transform="translate(904, 815) scale(0.24)"><use href="#m2"/></g>
+  <text x="700" y="946" font-size="15" font-weight="600" fill="#7FD3AC">Proposed: the drawer pulled out past the frame</text>
+  <text x="700" y="970" font-size="14" fill="#8A857D">Shows the thing the product does, and the silhouette is no longer a stock symbol.</text>
+</svg>

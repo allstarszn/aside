@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" width="1400" height="1400" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+  <rect width="1400" height="1400" fill="#12110F"/>
+
+  <text x="64" y="74" font-size="30" font-weight="600" fill="#F6F2EA">Killing the toggle-switch read</text>
+  <text x="64" y="110" font-size="17" fill="#8A857D">A pill with a knob at one end is a switch. Less rounding on the plate, and a drawer that is a panel rather than a knob.</text>
+
+  <!-- Reference: the problem -->
+  <text x="64" y="172" font-size="13" font-weight="600" letter-spacing="2" fill="#C4553D">THE PROBLEM</text>
+  <rect x="64" y="190" width="600" height="190" rx="18" fill="#1B1916" stroke="#3A241E"/>
+  <g transform="translate(120, 226)">
+    <rect x="0" y="0" width="300" height="120" rx="34" fill="#F6F2EA"/>
+    <text x="126" y="80" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="248" y="20" width="84" height="80" rx="28" fill="#3FA47C"/>
+  </g>
+  <text x="700" y="270" font-size="16" fill="#C4553D">Pill plate + rounded knob at one end.</text>
+  <text x="700" y="296" font-size="16" fill="#8A857D">Reads as a switch that is turned on,</text>
+  <text x="700" y="322" font-size="16" fill="#8A857D">not as a logo.</text>
+
+  <!-- A -->
+  <text x="64" y="440" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">A. SQUARER PLATE, SAME DRAWER</text>
+  <rect x="64" y="458" width="1248" height="190" rx="18" fill="#1B1916"/>
+  <g transform="translate(120, 494)">
+    <rect x="0" y="0" width="300" height="120" rx="20" fill="#F6F2EA"/>
+    <text x="126" y="80" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="248" y="20" width="84" height="80" rx="18" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(560, 528)">
+    <rect x="0" y="0" width="150" height="60" rx="10" fill="#F6F2EA"/>
+    <text x="63" y="40" font-size="33" font-weight="600" letter-spacing="-1.2" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="124" y="10" width="42" height="40" rx="9" fill="#3FA47C"/>
+  </g>
+  <text x="800" y="540" font-size="16" fill="#C9C4BB">Card, not a pill. The drawer still</text>
+  <text x="800" y="566" font-size="16" fill="#8A857D">sits like a knob though.</text>
+
+  <!-- B -->
+  <text x="64" y="708" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">B. TALL NARROW DRAWER</text>
+  <rect x="64" y="726" width="1248" height="190" rx="18" fill="#1B1916"/>
+  <g transform="translate(120, 762)">
+    <rect x="0" y="0" width="300" height="120" rx="20" fill="#F6F2EA"/>
+    <text x="132" y="80" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="266" y="12" width="62" height="96" rx="18" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(560, 796)">
+    <rect x="0" y="0" width="150" height="60" rx="10" fill="#F6F2EA"/>
+    <text x="66" y="40" font-size="33" font-weight="600" letter-spacing="-1.2" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="133" y="6" width="31" height="48" rx="9" fill="#3FA47C"/>
+  </g>
+  <text x="800" y="808" font-size="16" fill="#C9C4BB">Taller than wide, so it reads as a</text>
+  <text x="800" y="834" font-size="16" fill="#8A857D">panel standing beside the card.</text>
+
+  <!-- C -->
+  <text x="64" y="976" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">C. FULL HEIGHT, OVERSHOOTING</text>
+  <rect x="64" y="994" width="1248" height="190" rx="18" fill="#1B1916"/>
+  <g transform="translate(120, 1030)">
+    <rect x="0" y="0" width="300" height="120" rx="20" fill="#F6F2EA"/>
+    <text x="130" y="80" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="262" y="0" width="70" height="120" rx="20" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(560, 1064)">
+    <rect x="0" y="0" width="150" height="60" rx="10" fill="#F6F2EA"/>
+    <text x="65" y="40" font-size="33" font-weight="600" letter-spacing="-1.2" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="131" y="0" width="35" height="60" rx="10" fill="#3FA47C"/>
+  </g>
+  <text x="800" y="1076" font-size="16" fill="#C9C4BB">The drawer is docked to the card and</text>
+  <text x="800" y="1102" font-size="16" fill="#8A857D">runs past its edge. Closest to the icon.</text>
+
+  <rect x="64" y="1240" width="1248" height="1" fill="#2A2823"/>
+  <text x="64" y="1292" font-size="15" fill="#6E6A64">All three keep SF Pro Display Semibold and the approved mark logic: paper screen, green drawer pulled out past the frame.</text>
+  <text x="64" y="1318" font-size="15" fill="#6E6A64">The small versions on the right of each row are the real test, at roughly menu bar height.</text>
+</svg>

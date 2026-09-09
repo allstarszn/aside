@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" width="1400" height="1400" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+  <rect width="1400" height="1400" fill="#12110F"/>
+  <text x="64" y="74" font-size="30" font-weight="600" fill="#F6F2EA">Showing the overshoot instead of implying it</text>
+  <text x="64" y="110" font-size="17" fill="#8A857D">Same height hides the card's edge. Overshooting top and bottom too makes the drawer read as a separate panel on top.</text>
+
+  <!-- C -->
+  <text x="64" y="176" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">C. FLUSH HEIGHT</text>
+  <rect x="64" y="194" width="1248" height="230" rx="18" fill="#1B1916"/>
+  <g transform="translate(120, 244)">
+    <rect x="0" y="0" width="300" height="120" rx="20" fill="#F6F2EA"/>
+    <text x="130" y="80" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="262" y="0" width="70" height="120" rx="20" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(560, 274)">
+    <rect x="0" y="0" width="150" height="60" rx="10" fill="#F6F2EA"/>
+    <text x="65" y="40" font-size="33" font-weight="600" letter-spacing="-1.2" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="131" y="0" width="35" height="60" rx="10" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(800, 254)">
+    <rect x="0" y="0" width="100" height="100" rx="24" fill="#26241F"/>
+    <rect x="18" y="30" width="52" height="40" rx="11" fill="#F6F2EA"/>
+    <rect x="56" y="30" width="26" height="40" rx="11" fill="#3FA47C"/>
+    <text x="50" y="124" font-size="12" fill="#6E6A64" text-anchor="middle">matching icon</text>
+  </g>
+  <text x="960" y="300" font-size="16" fill="#8A857D">Clean, but the card's right edge is</text>
+  <text x="960" y="324" font-size="16" fill="#8A857D">hidden, so nothing is visibly on top.</text>
+
+  <!-- D -->
+  <text x="64" y="500" font-size="13" font-weight="600" letter-spacing="2" fill="#7FD3AC">D. OVERSHOOTS TOP, BOTTOM AND RIGHT</text>
+  <rect x="64" y="518" width="1248" height="230" rx="18" fill="#1B1916" stroke="#2F5D4A"/>
+  <g transform="translate(120, 558)">
+    <rect x="0" y="14" width="300" height="120" rx="20" fill="#F6F2EA"/>
+    <text x="130" y="94" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="258" y="0" width="76" height="148" rx="24" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(560, 596)">
+    <rect x="0" y="7" width="150" height="60" rx="10" fill="#F6F2EA"/>
+    <text x="65" y="47" font-size="33" font-weight="600" letter-spacing="-1.2" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="129" y="0" width="38" height="74" rx="12" fill="#3FA47C"/>
+  </g>
+  <g transform="translate(800, 578)">
+    <rect x="0" y="0" width="100" height="100" rx="24" fill="#26241F"/>
+    <rect x="16" y="32" width="52" height="36" rx="11" fill="#F6F2EA"/>
+    <rect x="54" y="24" width="30" height="52" rx="12" fill="#3FA47C"/>
+    <text x="50" y="124" font-size="12" fill="#6E6A64" text-anchor="middle">matching icon</text>
+  </g>
+  <text x="960" y="624" font-size="16" fill="#C9C4BB">The card is visibly behind. One rule</text>
+  <text x="960" y="648" font-size="16" fill="#8A857D">across icon and wordmark: paper screen,</text>
+  <text x="960" y="672" font-size="16" fill="#8A857D">green drawer pulled out over its edge.</text>
+
+  <!-- D on light -->
+  <text x="64" y="824" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">D ON LIGHT, AND REVERSED</text>
+  <rect x="64" y="842" width="612" height="200" rx="18" fill="#F6F2EA"/>
+  <g transform="translate(180, 890)">
+    <rect x="0" y="14" width="300" height="120" rx="20" fill="#12110F"/>
+    <text x="130" y="94" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#F6F2EA" text-anchor="middle">aside</text>
+    <rect x="258" y="0" width="76" height="148" rx="24" fill="#2A7256"/>
+  </g>
+  <rect x="700" y="842" width="612" height="200" rx="18" fill="#3FA47C"/>
+  <g transform="translate(816, 890)">
+    <rect x="0" y="14" width="300" height="120" rx="20" fill="#F6F2EA"/>
+    <text x="130" y="94" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+    <rect x="258" y="0" width="76" height="148" rx="24" fill="#12110F"/>
+  </g>
+
+  <rect x="64" y="1100" width="1248" height="1" fill="#2A2823"/>
+  <text x="64" y="1152" font-size="15" fill="#C9C4BB">Both keep SF Pro Display Semibold, tracking -3%, and the word set in Ink on the paper card.</text>
+  <text x="64" y="1178" font-size="15" fill="#8A857D">The drawer is the only green element, and it is the same shape in the icon and in the logo, at different widths.</text>
+</svg>

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" width="1400" height="1400" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="iconBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E2C25"/><stop offset="1" stop-color="#12110F"/>
+    </linearGradient>
+    <g id="mark"><rect x="0" y="10" width="64" height="44" rx="13" fill="#F6F2EA"/><rect x="52" y="0" width="32" height="64" rx="15" fill="#3FA47C"/></g>
+    <g id="logo">
+      <rect x="0" y="14" width="300" height="120" rx="20" fill="#F6F2EA"/>
+      <text x="130" y="94" font-size="66" font-weight="600" letter-spacing="-2.5" fill="#12110F" text-anchor="middle">aside</text>
+      <rect x="258" y="0" width="76" height="148" rx="24" fill="#3FA47C"/>
+    </g>
+  </defs>
+
+  <rect width="1400" height="1400" fill="#12110F"/>
+
+  <g transform="translate(64, 56)"><use href="#logo"/></g>
+  <text x="64" y="264" font-size="20" fill="#8A857D">A place at the edge of your screen. Notes now, everything else later.</text>
+  <rect x="64" y="300" width="1272" height="1" fill="#2A2823"/>
+
+  <text x="64" y="352" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">ONE RULE, TWO WIDTHS</text>
+  <text x="64" y="386" font-size="17" fill="#C9C4BB">A paper screen with the green drawer pulled out over its right edge. The logo is that shape stretched to hold the word.</text>
+
+  <rect x="64" y="412" width="400" height="200" rx="18" fill="#1B1916"/>
+  <g transform="translate(172, 442)"><g transform="scale(2.2)"><use href="#mark"/></g></g>
+  <text x="264" y="646" font-size="13" fill="#6E6A64" text-anchor="middle">Mark</text>
+
+  <g transform="translate(496, 412)">
+    <clipPath id="sq"><rect width="200" height="200" rx="45"/></clipPath>
+    <g clip-path="url(#sq)"><rect width="200" height="200" fill="url(#iconBg)"/>
+      <rect x="49" y="73" width="77" height="53" rx="16" fill="#F6F2EA"/>
+      <rect x="112" y="61" width="39" height="77" rx="18" fill="#3FA47C"/>
+    </g>
+    <rect x="0.5" y="0.5" width="199" height="199" rx="45" fill="none" stroke="#3A372F"/>
+    <text x="100" y="234" font-size="13" fill="#6E6A64" text-anchor="middle">App icon</text>
+  </g>
+
+  <rect x="728" y="412" width="608" height="200" rx="18" fill="#1B1916"/>
+  <text x="760" y="446" font-size="12" fill="#6E6A64">At menu bar size</text>
+  <g transform="translate(760, 462)"><g transform="scale(0.62)"><use href="#logo"/></g></g>
+  <g transform="translate(1000, 470)"><g transform="scale(0.55)"><use href="#mark"/></g></g>
+  <text x="760" y="586" font-size="14" fill="#8A857D">Two filled regions, nothing thin, so nothing drops out.</text>
+
+  <rect x="64" y="668" width="1272" height="1" fill="#2A2823"/>
+  <text x="64" y="720" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">PALETTE</text>
+  <g transform="translate(64, 740)">
+    <rect x="0" y="0" width="196" height="108" rx="14" fill="#12110F" stroke="#2A2823"/>
+    <text x="16" y="72" font-size="15" font-weight="600" fill="#F6F2EA">Ink</text><text x="16" y="94" font-size="13" fill="#8A857D">#12110F</text>
+    <rect x="212" y="0" width="196" height="108" rx="14" fill="#1B1916" stroke="#2A2823"/>
+    <text x="228" y="72" font-size="15" font-weight="600" fill="#F6F2EA">Graphite</text><text x="228" y="94" font-size="13" fill="#8A857D">#1B1916</text>
+    <rect x="424" y="0" width="196" height="108" rx="14" fill="#3FA47C"/>
+    <text x="440" y="72" font-size="15" font-weight="600" fill="#0B2419">Ledger</text><text x="440" y="94" font-size="13" fill="#14503A">#3FA47C</text>
+    <rect x="636" y="0" width="196" height="108" rx="14" fill="#2A7256"/>
+    <text x="652" y="72" font-size="15" font-weight="600" fill="#EAF4EF">Ledger Deep</text><text x="652" y="94" font-size="13" fill="#A9D2C0">#2A7256</text>
+    <rect x="848" y="0" width="196" height="108" rx="14" fill="#F6F2EA"/>
+    <text x="864" y="72" font-size="15" font-weight="600" fill="#12110F">Paper</text><text x="864" y="94" font-size="13" fill="#6E6A64">#F6F2EA</text>
+    <rect x="1060" y="0" width="196" height="108" rx="14" fill="#8A857D"/>
+    <text x="1076" y="72" font-size="15" font-weight="600" fill="#12110F">Ash</text><text x="1076" y="94" font-size="13" fill="#2E2C28">#8A857D</text>
+  </g>
+  <text x="64" y="888" font-size="15" fill="#C9C4BB">Ledger is the only saturated color, and the drawer is the only thing that ever wears it.</text>
+
+  <rect x="64" y="928" width="1272" height="1" fill="#2A2823"/>
+  <text x="64" y="980" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">TYPE</text>
+  <text x="64" y="1020" font-size="16" fill="#C9C4BB">Wordmark: SF Pro Display, Semibold, tracking -3%, set in Ink on the card. Always lowercase.</text>
+  <text x="64" y="1046" font-size="16" fill="#C9C4BB">Body and UI: SF Pro Text. The app is native, so the type is the system's own.</text>
+
+  <text x="760" y="980" font-size="13" font-weight="600" letter-spacing="2" fill="#6E6A64">RULES</text>
+  <text x="760" y="1018" font-size="16" fill="#C9C4BB">No trailing period. The drawer is the device.</text>
+  <text x="760" y="1046" font-size="16" fill="#C9C4BB">Never set the wordmark in a gradient.</text>
+  <text x="760" y="1074" font-size="16" fill="#C9C4BB">On light, invert the card to Ink and use Ledger Deep.</text>
+  <text x="760" y="1102" font-size="16" fill="#C9C4BB">The app bundle stays "Aside".</text>
+
+  <rect x="64" y="1150" width="1272" height="1" fill="#2A2823"/>
+  <text x="64" y="1194" font-size="15" fill="#8A857D">Deliberately not: violet (commit.), gold (The Keys), monochrome blue (InfoOS), red (Bear), yellow (Apple Notes), purple (Obsidian).</text>
+  <text x="64" y="1222" font-size="15" fill="#8A857D">And deliberately no trailing period: that lockup belongs to commit., and reusing it made the two read as one brand.</text>
+  <text x="64" y="1262" font-size="15" fill="#6E6A64">Inside the app, selection stays on the macOS system accent color. A brand color that overrides the user's own accent is not native.</text>
+</svg>
