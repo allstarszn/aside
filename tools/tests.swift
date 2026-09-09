@@ -48,6 +48,13 @@ enum Tests {
         check("no displays yields nothing",
               ScreenResolver.choose(savedID: 2, savedName: nil, from: []) == nil)
 
+        print("unread badge")
+        let badge = Layout.badgeFrame()
+        check("it overhangs the tab's outboard edge", badge.minX < 0)
+        check("it overhangs the top", badge.maxY > Layout.tabHeight)
+        check("it is at the top, not the middle", badge.midY > Layout.tabHeight * 0.75)
+        check("it stays small", badge.width <= 14 && badge.height <= 14)
+
         print("panel width")
         check("a saved width is kept", Layout.clampWidth(520) == 520)
         check("too narrow is clamped up", Layout.clampWidth(50) == Layout.minPanelWidth)

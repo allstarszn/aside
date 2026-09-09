@@ -9,6 +9,12 @@ enum Layout {
     static let minPanelWidth: CGFloat = 300
     static let maxPanelWidth: CGFloat = 760
 
+    /// The unread dot sits on the tab's top inboard corner and deliberately
+    /// overhangs both edges, so it reads as a badge rather than as part of the tab.
+    static func badgeFrame() -> NSRect {
+        NSRect(x: -4, y: tabHeight - 7, width: 12, height: 12)
+    }
+
     static func clampWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minPanelWidth), maxPanelWidth)
     }
@@ -52,6 +58,29 @@ final class ContainerView: NSView {
     }
 }
 
+/// The unread dot. It hangs off the tab's top outboard corner, so it has to live
+/// outside the tab's blurred layer, which clips whatever it contains.
+final class UnreadBadge: NSView {
+    var showing = false {
+        didSet { if showing != oldValue { isHidden = !showing; needsDisplay = true } }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let ring = bounds.insetBy(dx: 0.5, dy: 0.5)
+        // A dark ring separates it from whatever is on screen behind the tab.
+        NSColor.black.withAlphaComponent(0.45).setStroke()
+        let outline = NSBezierPath(ovalIn: ring)
+        outline.lineWidth = 2
+        outline.stroke()
+
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).fill()
+    }
+
+    // Decorative only. Clicks belong to the tab underneath.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// The strip down the drawer's inboard edge that resizes it.
 final class ResizeHandle: NSView {
     var onDrag: ((NSPoint) -> Void)?
@@ -76,10 +105,6 @@ final class TabView: NSView {
     private var dragDistance: CGFloat = 0
     private let chevron = NSImageView()
 
-    /// Shown on the tab itself, so unread mail is visible without opening it.
-    var unread: Int = 0 {
-        didSet { if unread != oldValue { needsDisplay = true } }
-    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -99,17 +124,6 @@ final class TabView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard unread > 0 else { return }
-        let size: CGFloat = 7
-        let dot = NSRect(x: (bounds.width - size) / 2,
-                         y: bounds.midY + 16,
-                         width: size, height: size)
-        NSColor.controlAccentColor.setFill()
-        NSBezierPath(ovalIn: dot).fill()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -137,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cardWrap: NSView!
     private weak var resizeHandle: ResizeHandle?
     private weak var tabView: TabView?
+    private var badge: UnreadBadge?
     private var watchers = Set<AnyCancellable>()
     private var menuBar: MenuBarItem?
     private var store: NoteStore!
@@ -169,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.tabView?.unread = self.inbox.unreadCount
+                self.badge?.showing = self.inbox.unreadCount > 0
             }
             .store(in: &watchers)
 
@@ -284,6 +299,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tab.onDrag = { [weak self] pointer in self?.dragTab(to: pointer) }
         tabView = tab
         tabBlur.addSubview(tab)
+
+        // Added to the shadow wrapper, not the blur: that wrapper does not clip,
+        // which is what lets the dot overhang the corner.
+        let dot = UnreadBadge(frame: .zero)
+        dot.isHidden = true
+        tabWrap.addSubview(dot)
+        badge = dot
         container.addSubview(tabWrap)
         container.tabHost = tabWrap
 
@@ -364,6 +386,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                width: panelWidth, height: cardHeight)
 
         resizeHandle?.frame = NSRect(x: 0, y: 0, width: 8, height: cardHeight)
+        // Top left of the tab, overhanging both edges by a few points.
+        badge?.frame = Layout.badgeFrame()
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
