@@ -119,6 +119,52 @@ final class InboxStore: ObservableObject {
         return nil
     }
 
+    /// Where a reply would go. Each platform needs a different proof that it is
+    /// safe to send, so the route carries what that proof needs.
+    enum ReplyRoute: Equatable {
+        case imessage(Conversation)
+        /// WhatsApp has no addressing, only "the chat currently on screen", so
+        /// the route carries what must be verified at send time.
+        case whatsapp(sender: String, body: String)
+
+        var label: String {
+            switch self {
+            case .imessage(let c): return c.name
+            case .whatsapp: return "WhatsApp"
+            }
+        }
+
+        var service: String {
+            switch self {
+            case .imessage(let c): return c.service
+            case .whatsapp: return "WhatsApp"
+            }
+        }
+    }
+
+    /// nil means no reply box. That is deliberate: a guess sends someone's private
+    /// message to the wrong person.
+    func replyRoute(for message: InboxMessage) -> ReplyRoute? {
+        if message.app == "net.whatsapp.whatsapp" {
+            // Only offered when WhatsApp is provably showing that conversation.
+            guard WhatsApp.isRunning,
+                  WhatsApp.showingConversation(sender: message.title, body: message.body)
+            else { return nil }
+            return .whatsapp(sender: message.title, body: message.body)
+        }
+        if let conversation = replyTarget(for: message) { return .imessage(conversation) }
+        return nil
+    }
+
+    func send(_ body: String, via route: ReplyRoute) throws {
+        switch route {
+        case .imessage(let conversation):
+            try IMessage.send(body, to: conversation)
+        case .whatsapp(let sender, let matching):
+            try WhatsApp.reply(body, sender: sender, matching: matching)
+        }
+    }
+
     func sendReply(_ body: String, to conversation: Conversation) throws {
         try IMessage.send(body, to: conversation)
     }

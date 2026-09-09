@@ -262,6 +262,40 @@ enum Tests {
         check("a sender with no matching thread yields nothing rather than a guess",
               inboxStore.replyTarget(for: note("com.apple.mobilesms", "Nobody By That Name At All")) == nil)
 
+        print("whatsapp guard")
+        // WhatsApp has no addressing, only "the chat on screen", so the guard is
+        // the whole safety story: typing into the wrong chat sends a private
+        // message to a stranger.
+        check("an empty reply is refused", {
+            do { try WhatsApp.reply("   ", sender: "x", matching: "y"); return false }
+            catch { return true }
+        }())
+        check("a conversation that is not on screen is refused", {
+            do {
+                try WhatsApp.reply("must never send",
+                                   sender: "No Such Contact \(UUID().uuidString)",
+                                   matching: "no such message \(UUID().uuidString)")
+                return false
+            } catch { return true }
+        }())
+        check("an unmatchable sender and body never shows as showing",
+              WhatsApp.showingConversation(sender: "No Such Contact \(UUID().uuidString)",
+                                           body: "no such message \(UUID().uuidString)") == false)
+        check("empty sender and body never shows as showing",
+              WhatsApp.showingConversation(sender: "", body: "") == false)
+
+        let waNote = InboxMessage(id: "w", app: "net.whatsapp.whatsapp",
+                                  title: "No Such Contact \(UUID().uuidString)", subtitle: "",
+                                  body: "no such body \(UUID().uuidString)", date: Date())
+        check("a WhatsApp notification with no matching chat offers NO reply box",
+              InboxStore().replyRoute(for: waNote) == nil)
+        let discordNote = InboxMessage(id: "d", app: "com.hnc.discord", title: "Anyone",
+                                       subtitle: "", body: "hi", date: Date())
+        check("Discord never offers a reply box", InboxStore().replyRoute(for: discordNote) == nil)
+        let slackNote = InboxMessage(id: "s", app: "com.tinyspeck.slackmacgap", title: "Anyone",
+                                     subtitle: "", body: "hi", date: Date())
+        check("Slack does not offer one yet either", InboxStore().replyRoute(for: slackNote) == nil)
+
         print("inbox parsing")
         func payload(title: String, subtitle: String, body: String,
                      seconds: Double = 760000000, uuid: Data? = Data(repeating: 7, count: 16)) -> Data {

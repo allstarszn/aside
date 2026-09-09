@@ -40,7 +40,7 @@ struct InboxView: View {
                         inbox.markRead(message.id)
                         // A thread we can answer opens a reply box instead of
                         // throwing the user into another app.
-                        if inbox.replyTarget(for: message) != nil {
+                        if inbox.replyRoute(for: message) != nil {
                             withAnimation(.easeOut(duration: 0.16)) {
                                 replyingTo = replyingTo == message.id ? nil : message.id
                                 draft = ""
@@ -57,8 +57,8 @@ struct InboxView: View {
                         Button("Mute \(InboxStore.appName(message.app))") { inbox.toggleMute(message.app) }
                     }
 
-                    if replyingTo == message.id, let target = inbox.replyTarget(for: message) {
-                        replyBox(for: message, target: target)
+                    if replyingTo == message.id, let route = inbox.replyRoute(for: message) {
+                        replyBox(for: message, route: route)
                     }
                 }
             }
@@ -67,10 +67,10 @@ struct InboxView: View {
         }
     }
 
-    private func replyBox(for message: InboxMessage, target: Conversation) -> some View {
+    private func replyBox(for message: InboxMessage, route: InboxStore.ReplyRoute) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                TextField("Reply to \(target.name)", text: $draft, axis: .vertical)
+                TextField("Reply to \(route.label)", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1 ... 4)
                     .font(.system(size: 12.5))
@@ -80,11 +80,11 @@ struct InboxView: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .fill(Color.primary.opacity(0.07))
                     )
-                    .onSubmit { send(to: target, message: message) }
+                    .onSubmit { send(via: route, message: message) }
                     .disabled(sending)
 
                 Button {
-                    send(to: target, message: message)
+                    send(via: route, message: message)
                 } label: {
                     Image(systemName: sending ? "clock" : "arrow.up.circle.fill")
                         .font(.system(size: 17))
@@ -101,7 +101,7 @@ struct InboxView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Sends as \(target.service). Return to send.")
+                Text("Sends as \(route.service). Return to send.")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
@@ -111,13 +111,13 @@ struct InboxView: View {
         .transition(.opacity)
     }
 
-    private func send(to target: Conversation, message: InboxMessage) {
+    private func send(via route: InboxStore.ReplyRoute, message: InboxMessage) {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, !sending else { return }
         sending = true
         failure = nil
         do {
-            try inbox.sendReply(body, to: target)
+            try inbox.send(body, via: route)
             draft = ""
             sending = false
             withAnimation(.easeOut(duration: 0.16)) { replyingTo = nil }
