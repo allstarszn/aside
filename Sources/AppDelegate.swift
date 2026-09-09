@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 // MARK: - Layout constants
 
@@ -75,6 +76,11 @@ final class TabView: NSView {
     private var dragDistance: CGFloat = 0
     private let chevron = NSImageView()
 
+    /// Shown on the tab itself, so unread mail is visible without opening it.
+    var unread: Int = 0 {
+        didSet { if unread != oldValue { needsDisplay = true } }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
@@ -93,6 +99,17 @@ final class TabView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard unread > 0 else { return }
+        let size: CGFloat = 7
+        let dot = NSRect(x: (bounds.width - size) / 2,
+                         y: bounds.midY + 16,
+                         width: size, height: size)
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(ovalIn: dot).fill()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -119,8 +136,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tabWrap: NSView!
     private var cardWrap: NSView!
     private weak var resizeHandle: ResizeHandle?
+    private weak var tabView: TabView?
+    private var watchers = Set<AnyCancellable>()
     private var menuBar: MenuBarItem?
     private var store: NoteStore!
+    private let inbox = InboxStore()
     private var isExpanded = false
 
     /// Where the tab sits vertically, as a fraction of the usable height.
@@ -143,6 +163,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuBar = MenuBarItem { [weak self] in self?.toggle() }
             menuBar?.show()
         }
+
+        inbox.start()
+        inbox.$messages
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.tabView?.unread = self.inbox.unreadCount
+            }
+            .store(in: &watchers)
 
         buildWindow()
         layoutPieces(animated: false)
@@ -226,7 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cardWrap.addSubview(cardBlur)
         cardBlur.autoresizingMask = [.width, .height]
 
-        let hosting = NSHostingView(rootView: PanelView(store: store, onClose: { [weak self] in self?.collapse() }))
+        let hosting = NSHostingView(rootView: PanelView(store: store, inbox: inbox,
+                                                       onClose: { [weak self] in self?.collapse() }))
         hosting.autoresizingMask = [.width, .height]
         cardBlur.addSubview(hosting)
         let resize = ResizeHandle(frame: .zero)
@@ -252,6 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tab.autoresizingMask = [.width, .height]
         tab.onClick = { [weak self] in self?.toggle() }
         tab.onDrag = { [weak self] pointer in self?.dragTab(to: pointer) }
+        tabView = tab
         tabBlur.addSubview(tab)
         container.addSubview(tabWrap)
         container.tabHost = tabWrap

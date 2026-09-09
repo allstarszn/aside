@@ -1,18 +1,26 @@
 import SwiftUI
 
 // The contents of the slide-out drawer. The window chrome lives in AppDelegate.
+enum Surface: String, CaseIterable { case notes = "Notes", inbox = "Inbox" }
+
 struct PanelView: View {
     @ObservedObject var store: NoteStore
+    @ObservedObject var inbox: InboxStore
     var onClose: () -> Void
 
     @ObservedObject private var screens = ScreenChoice.shared
     @State private var showingList: Bool
     @State private var query = ""
 
-    init(store: NoteStore, onClose: @escaping () -> Void, startWithList: Bool = false) {
+    @State private var surface: Surface = .notes
+
+    init(store: NoteStore, inbox: InboxStore, onClose: @escaping () -> Void,
+         startWithList: Bool = false, startOn: Surface = .notes) {
         self.store = store
+        self.inbox = inbox
         self.onClose = onClose
         _showingList = State(initialValue: startWithList)
+        _surface = State(initialValue: startOn)
     }
 
     var body: some View {
@@ -21,15 +29,21 @@ struct PanelView: View {
             Divider().opacity(0.5)
 
             ZStack {
-                VStack(spacing: 0) {
-                    dateLine
-                    editor
-                }
-                .opacity(showingList ? 0 : 1)
+                if surface == .notes {
+                    ZStack {
+                        VStack(spacing: 0) {
+                            dateLine
+                            editor
+                        }
+                        .opacity(showingList ? 0 : 1)
 
-                if showingList {
-                    noteList
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        if showingList {
+                            noteList
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                } else {
+                    InboxView(inbox: inbox, onSaveAsNote: saveAsNote)
                 }
             }
 
@@ -47,25 +61,37 @@ struct PanelView: View {
         HStack(spacing: 6) {
             IconButton(symbol: "chevron.right", help: "Close", action: onClose)
 
-            if showingList {
-                Text("All Notes")
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.leading, 2)
+            Picker("", selection: $surface) {
+                ForEach(Surface.allCases, id: \.self) { option in
+                    if option == .inbox && inbox.unreadCount > 0 {
+                        Text("\(option.rawValue)  \(inbox.unreadCount)").tag(option)
+                    } else {
+                        Text(option.rawValue).tag(option)
+                    }
+                }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 168)
+            .padding(.leading, 2)
 
             Spacer(minLength: 4)
 
-            IconButton(symbol: "square.and.pencil", help: "New note") {
-                store.newNote()
-                withAnimation(.easeOut(duration: 0.16)) { showingList = false }
-                NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
-            }
-            IconButton(symbol: showingList ? "chevron.up" : "list.bullet",
-                       help: showingList ? "Back to note" : "All notes",
-                       active: showingList) {
-                withAnimation(.easeOut(duration: 0.18)) { showingList.toggle() }
-                if !showingList { query = "" }
-                if !showingList { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
+            if surface == .notes {
+                IconButton(symbol: "square.and.pencil", help: "New note") {
+                    store.newNote()
+                    withAnimation(.easeOut(duration: 0.16)) { showingList = false }
+                    NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
+                }
+                IconButton(symbol: showingList ? "chevron.up" : "list.bullet",
+                           help: showingList ? "Back to note" : "All notes",
+                           active: showingList) {
+                    withAnimation(.easeOut(duration: 0.18)) { showingList.toggle() }
+                    if !showingList { query = "" }
+                    if !showingList { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
+                }
+            } else {
+                IconButton(symbol: "envelope.open", help: "Mark all read") { inbox.markAllRead() }
             }
         }
         .padding(.horizontal, 10)
@@ -95,6 +121,26 @@ struct PanelView: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+
+    /// The reason both surfaces are in one panel: something asked of you in
+    /// Slack becomes a note, with the source recorded.
+    private func saveAsNote(_ message: InboxMessage) {
+        let app = InboxStore.appName(message.app)
+        let stamp = message.date.formatted(date: .abbreviated, time: .shortened)
+        store.newNote()
+        store.text = """
+        \(message.heading)
+
+        \(message.body)
+
+        From \(app), \(stamp)
+        """
+        store.flushSave()
+        inbox.markRead(message.id)
+        showingList = false
+        withAnimation(.easeOut(duration: 0.18)) { surface = .notes }
+        NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
     }
 
     private var dateLabel: String {
@@ -203,7 +249,9 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Text("\(store.notes.count) note\(store.notes.count == 1 ? "" : "s")")
+            Text(surface == .notes
+                 ? "\(store.notes.count) note\(store.notes.count == 1 ? "" : "s")"
+                 : "\(inbox.unreadCount) unread")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
 
@@ -274,23 +322,6 @@ private struct NoteRow: View {
     let note: Note
     let isSelected: Bool
 
-    /// Same shape Notes uses: time today, weekday this week, short date beyond.
-    static func dateLabel(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let formatter = DateFormatter()
-        if calendar.isDateInToday(date) {
-            formatter.dateFormat = "h:mm a"
-        } else if calendar.isDateInYesterday(date) {
-            return "Yesterday"
-        } else if let weekAgo = calendar.date(byAdding: .day, value: -6, to: Date()), date > weekAgo {
-            formatter.dateFormat = "EEEE"
-        } else {
-            formatter.dateStyle = .short
-            formatter.timeStyle = .none
-        }
-        return formatter.string(from: date)
-    }
-
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -310,7 +341,7 @@ private struct NoteRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
-            Text(NoteRow.dateLabel(note.modified))
+            Text(NoteRowDate.label(note.modified))
                 .font(.system(size: 10.5))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)

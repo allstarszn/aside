@@ -188,6 +188,44 @@ enum Tests {
         UserDefaults.standard.removeObject(forKey: "notesDirectory")
         UserDefaults.standard.removeObject(forKey: "seededWelcome")
 
+        print("inbox parsing")
+        func payload(title: String, subtitle: String, body: String,
+                     seconds: Double = 760000000, uuid: Data? = Data(repeating: 7, count: 16)) -> Data {
+            var request: [String: Any] = ["titl": title, "subt": subtitle, "body": body]
+            request["iden"] = "abc"
+            var root: [String: Any] = ["app": "com.tinyspeck.slackmacgap", "date": seconds, "req": request]
+            if let uuid { root["uuid"] = uuid }
+            return (try? PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)) ?? Data()
+        }
+
+        let parsed = InboxStore.parse(payload(title: "Dustin", subtitle: "#general", body: "call me"),
+                                      app: "com.tinyspeck.slackmacgap")
+        check("a notification payload parses", parsed != nil)
+        check("the sender is read", parsed?.title == "Dustin")
+        check("the room is read", parsed?.subtitle == "#general")
+        check("the body is read", parsed?.body == "call me")
+        check("sender and room are shown together", parsed?.heading.contains("Dustin") == true
+              && parsed?.heading.contains("#general") == true)
+
+        // The stamp is seconds since 2001, not since 1970. Using the wrong epoch
+        // puts every message 31 years in the past.
+        let expected = Date(timeIntervalSinceReferenceDate: 760000000)
+        check("the Apple epoch is used, not Unix",
+              abs((parsed?.date ?? .distantPast).timeIntervalSince(expected)) < 1)
+
+        check("a payload with no text is dropped",
+              InboxStore.parse(payload(title: "", subtitle: "", body: ""), app: "x") == nil)
+        check("garbage is dropped rather than crashing",
+              InboxStore.parse(Data([0x00, 0x01, 0x02]), app: "x") == nil)
+        check("the same notification twice yields one id",
+              InboxStore.parse(payload(title: "A", subtitle: "", body: "b"), app: "x")?.id
+              == InboxStore.parse(payload(title: "A", subtitle: "", body: "b"), app: "x")?.id)
+
+        check("known bundles get friendly names", InboxStore.appName("net.whatsapp.whatsapp") == "WhatsApp")
+        check("Slack too", InboxStore.appName("com.tinyspeck.slackmacgap") == "Slack")
+        check("an unknown bundle still reads as something",
+              InboxStore.appName("com.acme.widget") == "Widget")
+
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         return failures
     }

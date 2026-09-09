@@ -64,6 +64,27 @@ Ledger is the only saturated color. Inside the app, selection deliberately stays
 on the macOS system accent color rather than the brand color: overriding the
 user's own accent is not native behavior.
 
+## Inbox
+
+The panel has two surfaces: **Notes** and **Inbox**. The inbox pools notifications
+from iMessage, Slack, WhatsApp and Discord into one list, so opening the drawer
+shows your notes and everything waiting for you in the same place. A dot appears
+on the tab when something is unread.
+
+Right-click a message to **Save as Note**, which is the reason both surfaces live
+in one panel: something asked of you in Slack becomes a note in your notes folder,
+with the source recorded. Clicking a message opens the app it came from.
+
+**This needs Full Disk Access**, granted once in System Settings, Privacy and
+Security. macOS keeps every notification in one protected file; that single file
+is why one integration covers all four apps. It is read only, and nothing leaves
+your Mac.
+
+Two things worth knowing. That file is a live queue of undismissed notifications,
+not an archive, so aside keeps its own copy as messages arrive: it only sees what
+lands while it is running. And it can only read, so replying means opening the
+source app. Mute an app from the right-click menu.
+
 ## Displays
 
 Drag the tab and it follows your pointer, re-pinning to the right edge of

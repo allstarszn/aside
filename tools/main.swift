@@ -9,7 +9,8 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "test" {
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "panel.png"
 let appearanceName: NSAppearance.Name =
     (CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "light") ? .aqua : .darkAqua
-let startWithList = CommandLine.arguments.count > 3 && CommandLine.arguments[3] == "list"
+let mode = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : ""
+let startWithList = mode == "list"
 
 let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
@@ -33,6 +34,8 @@ for (name, body) in samples {
 }
 
 let store = NoteStore(directory: tmp)
+let inboxStore = InboxStore()
+inboxStore.ingest()
 let size = NSSize(width: Layout.defaultPanelWidth, height: 520)
 
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -51,7 +54,9 @@ backdrop.layer?.masksToBounds = true
 backdrop.layer?.borderWidth = 1
 backdrop.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
 
-let hosting = NSHostingView(rootView: PanelView(store: store, onClose: {}, startWithList: startWithList))
+let hosting = NSHostingView(rootView: PanelView(store: store, inbox: inboxStore, onClose: {},
+                                               startWithList: startWithList,
+                                               startOn: mode == "inbox" ? .inbox : .notes))
 hosting.frame = backdrop.bounds
 hosting.autoresizingMask = [.width, .height]
 backdrop.addSubview(hosting)
