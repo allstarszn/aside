@@ -7,7 +7,8 @@ macOS app bundle is "Aside".
 
 A pull tab on the right edge of the screen. Click it and a notepad slides out
 over whatever you are in. It can live on any attached display. Notes are plain markdown files in the
-Obsidian vault, so everything you jot shows up in Sirius Vault search.
+notes vault, so everything you jot is searchable alongside the rest of your
+writing.
 
 ## Build and run
 
