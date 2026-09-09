@@ -143,7 +143,13 @@ enum IMessage {
     /// Curly apostrophes differ between the notification and the stored message,
     /// so they are folded before comparing.
     static func normalise(_ text: String) -> String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Invisible directional marks are real characters and silently defeat
+        // string comparison: WhatsApp's "Chats" arrives as U+200E followed by
+        // "Chats", which is six characters, not five.
+        let cleaned = String(text.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0) && $0.value != 0x200E && $0.value != 0x200F
+        })
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\u{2019}", with: "'")
             .lowercased()
     }

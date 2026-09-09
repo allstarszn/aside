@@ -88,7 +88,6 @@ enum WhatsApp {
 
         func walk(_ element: AXUIElement, _ depth: Int) {
             guard depth < 24 else { return }
-            let role = text(element, kAXRoleAttribute as String)
             let identifier = text(element, "AXIdentifier")
 
             if identifier == "ChatBar_ComposerTextView", surface.composer == nil {
@@ -100,9 +99,11 @@ enum WhatsApp {
                     let candidate = text(element, key)
                     if !candidate.isEmpty { surface.bubbles.append(candidate); break }
                 }
-            } else if role == "AXHeading", surface.heading.isEmpty {
-                // WhatsApp puts its text in AXDescription, not AXTitle or AXValue.
-                // Reading only the title returns empty for every element here.
+            } else if identifier == "NavigationBar_HeaderViewButton", surface.heading.isEmpty {
+                /* The open conversation's name. NOT AXHeading: in WhatsApp those
+                   are the sidebar title ("Chats") and the date separators
+                   ("Feb 17, 2026"), so reading them named the wrong thing every
+                   time. Text lives in AXDescription, not AXTitle or AXValue. */
                 for key in [kAXDescriptionAttribute as String,
                             kAXTitleAttribute as String,
                             kAXValueAttribute as String] {

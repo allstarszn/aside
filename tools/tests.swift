@@ -248,6 +248,12 @@ enum Tests {
         check("normalising is case insensitive",
               IMessage.normalise("HEY There") == IMessage.normalise("hey there"))
         check("an empty body normalises to empty", IMessage.normalise("   \n ") == "")
+        check("invisible direction marks are stripped",
+              IMessage.normalise("\u{200E}Chats") == "chats")
+        check("a leading mark cannot defeat an equality check",
+              IMessage.normalise("\u{200E}Computer") == IMessage.normalise("Computer"))
+        check("control characters are stripped too",
+              IMessage.normalise("hey\u{0007} there") == "hey there")
 
         let inboxStore = InboxStore()
         func note(_ app: String, _ title: String) -> InboxMessage {
