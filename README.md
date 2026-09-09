@@ -119,10 +119,8 @@ never overwrites what you have not finished.
 ## Tests
 
 ```
-swiftc -target arm64-apple-macos14.0 -o build/snapshot \
-  Sources/*.swift tools/tests.swift tools/main.swift
-./build/snapshot test                      # hit testing + file naming
-./build/snapshot preview.png dark list     # render the UI offscreen to a PNG
+./test.sh                                  # the whole suite
+./build/snapshot preview.png dark inbox    # render a surface offscreen to a PNG
 ```
 
 `tools/` is development only and is not part of the app bundle.
