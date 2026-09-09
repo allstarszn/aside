@@ -13,7 +13,14 @@ enum Slack {
     // A token is a credential, so it lives in the Keychain rather than in
     // UserDefaults where anything on the machine could read it.
 
-    private static let service = "com.espyagency.aside.slack"
+    /// Overridable so the test suite can point at a throwaway entry.
+    ///
+    /// 🔴 The tests must NEVER touch the real credential. The test binary is
+    /// recompiled every run, so macOS treats it as a new program each time and
+    /// prompts for keychain authorisation on every single access. Running the
+    /// suite a few times means a wall of password prompts, and it can also
+    /// clobber the token the app is actually using.
+    static var service = "com.espyagency.aside.slack"
     private static let account = "user-token"
 
     static func storeToken(_ token: String) -> Bool {

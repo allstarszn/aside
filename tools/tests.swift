@@ -305,7 +305,10 @@ enum Tests {
         print("slack")
         // A USER token posts under the person's own name with no APP badge.
         // Bot tokens are what produce that badge, so they are not used.
-        let existing = Slack.token()
+        // Point at a throwaway keychain entry: the real one must not be read,
+        // written or prompted for by a binary that is rebuilt every run.
+        Slack.service = "com.espyagency.aside.slack.tests"
+        defer { Slack.service = "com.espyagency.aside.slack" }
         Slack.clearToken()
         check("with no token, nothing is connected", Slack.isConnected == false)
         check("posting without a token is refused", {
@@ -326,7 +329,7 @@ enum Tests {
             do { _ = try Slack.post("   ", to: "#general"); return false }
             catch { return true }
         }())
-        if let existing { _ = Slack.storeToken(existing) }   // leave his own token alone
+        Slack.clearToken()
 
         print("deep links")
         // Discord ships a fallbackDeepLink in its notification, pointing at the
