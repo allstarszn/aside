@@ -128,11 +128,15 @@ final class InboxStore: ObservableObject {
         /// WhatsApp has no addressing, only "the chat currently on screen", so
         /// the route carries what must be verified at send time.
         case whatsapp(sender: String, body: String)
+        /// Slack needs no proof of what is on screen: the API addresses the
+        /// channel directly, so the only question is which channel.
+        case slack(channel: String)
 
         var label: String {
             switch self {
             case .imessage(let c): return c.name
             case .whatsapp: return "WhatsApp"
+            case .slack(let channel): return channel
             }
         }
 
@@ -140,6 +144,7 @@ final class InboxStore: ObservableObject {
             switch self {
             case .imessage(let c): return c.service
             case .whatsapp: return "WhatsApp"
+            case .slack: return "Slack"
             }
         }
     }
@@ -147,6 +152,13 @@ final class InboxStore: ObservableObject {
     /// nil means no reply box. That is deliberate: a guess sends someone's private
     /// message to the wrong person.
     func replyRoute(for message: InboxMessage) -> ReplyRoute? {
+        if message.app == "com.tinyspeck.slackmacgap" {
+            // The notification's subtitle is the channel, e.g. "#launch".
+            guard Slack.isConnected else { return nil }
+            let channel = message.subtitle.trimmingCharacters(in: .whitespaces)
+            guard !channel.isEmpty else { return nil }
+            return .slack(channel: channel)
+        }
         if message.app == "net.whatsapp.whatsapp" {
             // Only offered when WhatsApp is provably showing that conversation.
             guard WhatsApp.isRunning,
@@ -164,6 +176,8 @@ final class InboxStore: ObservableObject {
             try IMessage.send(body, to: conversation)
         case .whatsapp(let sender, let matching):
             try WhatsApp.reply(body, sender: sender, matching: matching)
+        case .slack(let channel):
+            try Slack.post(body, to: channel)
         }
     }
 
