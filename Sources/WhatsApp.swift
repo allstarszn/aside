@@ -56,9 +56,23 @@ enum WhatsApp {
         (value(element, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
     }
 
+    /// 🔴 WhatsApp returns an EMPTY `AXWindows` array whenever it is not the
+    /// frontmost app, while `AXMainWindow` still works. Reading only `AXWindows`
+    /// meant the guard found nothing and refused every reply, because the moment
+    /// you reply from aside, WhatsApp is by definition not frontmost.
     private static func mainWindow() -> AXUIElement? {
         guard let app = application() else { return nil }
-        return (value(app, kAXWindowsAttribute as String) as? [AXUIElement])?.first
+        if let windows = value(app, kAXWindowsAttribute as String) as? [AXUIElement],
+           let first = windows.first {
+            return first
+        }
+        for key in [kAXMainWindowAttribute as String, kAXFocusedWindowAttribute as String] {
+            if let raw = value(app, key) {
+                let window = raw as! AXUIElement
+                return window
+            }
+        }
+        return nil
     }
 
     /// Collects the pieces we need in ONE walk rather than three.
@@ -106,10 +120,21 @@ enum WhatsApp {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleID }
     }
 
-    /// The conversation WhatsApp is currently showing, if it can be determined.
+    /// Sidebar and chrome headings that are not a conversation name. Without
+    /// this, the first AXHeading found is "Chats", the sidebar title, which made
+    /// the app look like it had a conversation open when it did not.
+    private static let chromeHeadings: Set<String> = ["chats", "whatsapp", "status", "calls", "communities"]
+
+    /// The conversation WhatsApp is currently showing, or nil if it cannot be
+    /// determined. Requires visible messages: a heading alone is not evidence,
+    /// since the sidebar has one too.
     static func openConversation() -> String? {
-        let heading = read().heading
-        return heading.isEmpty ? nil : heading
+        let surface = read()
+        guard !surface.bubbles.isEmpty else { return nil }
+        let heading = surface.heading.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !heading.isEmpty,
+              !chromeHeadings.contains(IMessage.normalise(heading)) else { return nil }
+        return heading
     }
 
     // MARK: - The guard
@@ -129,7 +154,9 @@ enum WhatsApp {
             }
         }
         let name = IMessage.normalise(sender)
-        return !name.isEmpty && IMessage.normalise(surface.heading) == name
+        let heading = IMessage.normalise(surface.heading)
+        guard !name.isEmpty, !heading.isEmpty, !chromeHeadings.contains(heading) else { return false }
+        return heading == name
     }
 
     // MARK: - Sending
