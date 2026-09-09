@@ -302,6 +302,32 @@ enum Tests {
                                      subtitle: "", body: "hi", date: Date())
         check("Slack does not offer one yet either", InboxStore().replyRoute(for: slackNote) == nil)
 
+        print("slack")
+        // A USER token posts under the person's own name with no APP badge.
+        // Bot tokens are what produce that badge, so they are not used.
+        let existing = Slack.token()
+        Slack.clearToken()
+        check("with no token, nothing is connected", Slack.isConnected == false)
+        check("posting without a token is refused", {
+            do { _ = try Slack.post("hi", to: "#general"); return false }
+            catch { return true }
+        }())
+        check("a token round-trips through the keychain", {
+            let sample = "xoxp-test-\(UUID().uuidString)"
+            guard Slack.storeToken(sample) else { return false }
+            let back = Slack.token()
+            Slack.clearToken()
+            return back == sample
+        }())
+        check("clearing really removes it", { Slack.clearToken(); return Slack.token() == nil }())
+        check("an empty message is refused before any network call", {
+            _ = Slack.storeToken("xoxp-not-real")
+            defer { Slack.clearToken() }
+            do { _ = try Slack.post("   ", to: "#general"); return false }
+            catch { return true }
+        }())
+        if let existing { _ = Slack.storeToken(existing) }   // leave his own token alone
+
         print("deep links")
         // Discord ships a fallbackDeepLink in its notification, pointing at the
         // exact message. Using it means a click lands on the right conversation
