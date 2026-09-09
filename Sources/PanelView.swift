@@ -171,7 +171,7 @@ struct PanelView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.tertiary)
-            TextField("Search", text: $query)
+            TextField("Search notes and messages", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
             if !query.isEmpty {
@@ -193,10 +193,92 @@ struct PanelView: View {
         .padding(.top, 8)
     }
 
+    /// Everything he has written and everything anyone sent him, in one list.
+    private var unifiedHits: [SearchHit] {
+        UnifiedSearch.run(query: query, notes: store.notes, messages: inbox.visible)
+    }
+
+    private var searchResults: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(unifiedHits.enumerated()), id: \.element.id) { index, hit in
+                    VStack(spacing: 0) {
+                        if index > 0 { Divider().opacity(0.4).padding(.leading, 20) }
+                        Button {
+                            open(hit)
+                        } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: hit.source == "Note" ? "doc.text" : "bubble.left")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(hit.title)
+                                            .font(.system(size: 12.5, weight: .medium))
+                                            .lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        Text(NoteRowDate.label(hit.date))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    Text(hit.snippet)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                    Text(hit.source)
+                                        .font(.system(size: 9.5))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+        }
+    }
+
+    private func open(_ hit: SearchHit) {
+        switch hit.kind {
+        case .note(let url):
+            store.select(url)
+            query = ""
+            withAnimation(.easeOut(duration: 0.18)) { showingList = false }
+            NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
+        case .message(let id):
+            inbox.markRead(id)
+            query = ""
+            withAnimation(.easeOut(duration: 0.18)) {
+                showingList = false
+                surface = .inbox
+            }
+        }
+    }
+
     private var noteList: some View {
         VStack(spacing: 0) {
         searchField
-        if visibleNotes.isEmpty {
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+            if unifiedHits.isEmpty {
+                VStack(spacing: 4) {
+                    Text("Nothing matches")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("Searched your notes and every message.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                searchResults
+            }
+        } else if visibleNotes.isEmpty {
             VStack(spacing: 4) {
                 Text("No notes match")
                     .font(.system(size: 13, weight: .medium))
@@ -241,7 +323,7 @@ struct PanelView: View {
             .padding(.vertical, 8)
         }
         .background(Color.clear)
-        .opacity(visibleNotes.isEmpty ? 0 : 1)
+        .opacity(visibleNotes.isEmpty || !query.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1)
         }
     }
 
@@ -249,6 +331,11 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
+            // The mark, quietly. It is the app's own window, so it does not need
+            // shouting, but it should be signed.
+            BrandMark(width: 15)
+                .opacity(0.75)
+
             Text(surface == .notes
                  ? "\(store.notes.count) note\(store.notes.count == 1 ? "" : "s")"
                  : "\(inbox.unreadCount) unread")

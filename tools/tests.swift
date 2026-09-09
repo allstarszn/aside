@@ -302,6 +302,41 @@ enum Tests {
                                      subtitle: "", body: "hi", date: Date())
         check("Slack does not offer one yet either", InboxStore().replyRoute(for: slackNote) == nil)
 
+        print("unified search")
+        let searchNotes = [
+            Note(url: URL(fileURLWithPath: "/tmp/Invoice.md"), text: "Invoice\n\nsend it monday", modified: Date(timeIntervalSinceNow: -9000)),
+            Note(url: URL(fileURLWithPath: "/tmp/Groceries.md"), text: "Groceries\n\ncoffee and an invoice pad", modified: Date()),
+        ]
+        let searchMessages = [
+            InboxMessage(id: "m1", app: "com.tinyspeck.slackmacgap", title: "Invoice", subtitle: "#billing", body: "chasing it", date: Date(timeIntervalSinceNow: -600)),
+            InboxMessage(id: "m2", app: "com.apple.mobilesms", title: "Jordan", subtitle: "", body: "did the invoice go out", date: Date()),
+        ]
+        let hits = UnifiedSearch.run(query: "invoice", notes: searchNotes, messages: searchMessages)
+        check("it searches notes AND messages in one pass", hits.count == 4)
+        check("a note title match ranks first", hits.first?.source == "Note")
+        check("a title match outranks a body match", {
+            guard let titleHit = hits.first(where: { $0.title == "Invoice" && $0.source == "Note" }),
+                  let bodyHit = hits.first(where: { $0.title == "Groceries" }) else { return false }
+            return hits.firstIndex(of: titleHit)! < hits.firstIndex(of: bodyHit)!
+        }())
+        check("messages are included", hits.contains { $0.source == "Slack" })
+        check("a one-letter query returns nothing rather than everything",
+              UnifiedSearch.run(query: "i", notes: searchNotes, messages: searchMessages).isEmpty)
+        check("an empty query returns nothing",
+              UnifiedSearch.run(query: "   ", notes: searchNotes, messages: searchMessages).isEmpty)
+        check("no match yields no hits",
+              UnifiedSearch.run(query: "zzzznothing", notes: searchNotes, messages: searchMessages).isEmpty)
+        check("search is case insensitive",
+              UnifiedSearch.run(query: "INVOICE", notes: searchNotes, messages: searchMessages).count == 4)
+
+        // The snippet must show WHY a row matched, not just the opening words.
+        let padded = String(repeating: "filler words here. ", count: 20) + "the needle is here" + String(repeating: " more filler.", count: 20)
+        let excerpt = UnifiedSearch.excerpt(padded, around: "needle")
+        check("the excerpt is built around the match", excerpt.contains("needle"))
+        check("the excerpt stays short", excerpt.count < 130)
+        check("an excerpt with no match still returns something",
+              UnifiedSearch.excerpt("some text", around: "absent").isEmpty == false)
+
         print("slack")
         // A USER token posts under the person's own name with no APP badge.
         // Bot tokens are what produce that badge, so they are not used.
