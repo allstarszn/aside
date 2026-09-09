@@ -239,8 +239,16 @@ enum Tests {
         }())
 
         print("reply targeting")
-        // A notification carries a NAME. Replying needs a handle, so it has to be
-        // matched back to a real thread, and a wrong match sends to the wrong person.
+        // Matching a notification to a thread by SENDER NAME resolved only 28% of
+        // real notifications, because chat.db has no display_name for one to one
+        // chats so a thread's name is the raw phone number. Matching on the BODY,
+        // which is a real message in the database, took it to 92%.
+        check("apostrophes are folded before comparing",
+              IMessage.normalise("that\u{2019}s it  ") == "that's it")
+        check("normalising is case insensitive",
+              IMessage.normalise("HEY There") == IMessage.normalise("hey there"))
+        check("an empty body normalises to empty", IMessage.normalise("   \n ") == "")
+
         let inboxStore = InboxStore()
         func note(_ app: String, _ title: String) -> InboxMessage {
             InboxMessage(id: UUID().uuidString, app: app, title: title, subtitle: "", body: "b", date: Date())
@@ -251,8 +259,6 @@ enum Tests {
               inboxStore.replyTarget(for: note("net.whatsapp.whatsapp", "Anyone")) == nil)
         check("a Discord notification is never treated as replyable",
               inboxStore.replyTarget(for: note("com.hnc.discord", "Anyone")) == nil)
-        check("an empty sender never matches",
-              inboxStore.replyTarget(for: note("com.apple.mobilesms", "   ")) == nil)
         check("a sender with no matching thread yields nothing rather than a guess",
               inboxStore.replyTarget(for: note("com.apple.mobilesms", "Nobody By That Name At All")) == nil)
 

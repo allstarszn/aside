@@ -32,6 +32,10 @@ final class InboxStore: ObservableObject {
     /// iMessage threads, refreshed alongside ingest, so a notification can be
     /// matched back to something replyable.
     @Published private(set) var threads: [Conversation] = []
+    /// Recent inbound message text mapped to the chat it belongs to. This is what
+    /// makes a notification repliable: its sender name usually will not match a
+    /// thread whose name is a raw phone number.
+    private var bodyIndex: [String: String] = [:]
 
     /// Bundle identifiers worth surfacing. Anything else is noise from the OS.
     static let knownApps: [String: String] = [
@@ -95,6 +99,14 @@ final class InboxStore: ObservableObject {
     /// recent threads so an old namesake cannot win.
     func replyTarget(for message: InboxMessage) -> Conversation? {
         guard message.app == "com.apple.mobilesms" || message.app == "com.apple.ichat" else { return nil }
+        // The body is the strongest signal: it IS a real message in the database,
+        // so it identifies the exact chat. Name matching is the fallback.
+        let bodyKey = IMessage.normalise(message.body)
+        if !bodyKey.isEmpty, let identifier = bodyIndex[bodyKey],
+           let byBody = threads.first(where: { $0.handle == identifier }) {
+            return byBody
+        }
+
         let needle = message.title.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return nil }
         if let byName = threads.first(where: { $0.name.lowercased() == needle }) { return byName }
@@ -114,7 +126,10 @@ final class InboxStore: ObservableObject {
     /// Pulls anything new out of the system database and keeps it.
     func ingest() {
         checkedAt = Date()
-        if let found = IMessage.conversations(limit: 60) { threads = found }
+        if let found = IMessage.conversations(limit: 60) {
+            threads = found
+            bodyIndex = IMessage.inboundBodyIndex()
+        }
         let found = readDatabase()
         guard let found else { canRead = false; return }
         canRead = true

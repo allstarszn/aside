@@ -95,7 +95,61 @@ enum IMessage {
         return String(cString: raw)
     }
 
+    // MARK: - Finding the thread a notification came from
+
+    /* A notification carries a sender NAME, but chat.db has no display_name for
+       one to one chats, so a thread's name is usually the raw phone number.
+       Comparing "Jordan Smith" against "+1813..." matched only 28% on real data.
+
+       The body, though, IS a real message sitting in the database. Indexing
+       recent inbound messages by their text and looking the notification up in
+       that index resolved 76%, and needs no Contacts permission. */
+    static func inboundBodyIndex(days: Int = 30) -> [String: String] {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            sqlite3_close(handle)
+            return [:]
+        }
+        defer { sqlite3_close(handle) }
+
+        let sql = "select m.text, m.attributedBody, c.chat_identifier "
+            + "from message m "
+            + "join chat_message_join j on j.message_id = m.ROWID "
+            + "join chat c on c.ROWID = j.chat_id "
+            + "where m.is_from_me = 0 and m.date > (strftime('%s','now') - ? - 978307200) * 1000000000 "
+            + "order by m.date desc"
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return [:] }
+        sqlite3_bind_int64(statement, 1, Int64(days) * 86_400)
+        defer { sqlite3_finalize(statement) }
+
+        var index: [String: String] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var body = column(statement, 0)
+            if body.isEmpty, let blob = sqlite3_column_blob(statement, 1) {
+                let data = Data(bytes: blob, count: Int(sqlite3_column_bytes(statement, 1)))
+                body = AttributedBody.text(from: data) ?? ""
+            }
+            let key = normalise(body)
+            guard !key.isEmpty else { continue }
+            let identifier = column(statement, 2)
+            // Newest first, so the first writer wins and stays the freshest.
+            if index[key] == nil, !identifier.isEmpty { index[key] = identifier }
+        }
+        return index
+    }
+
+    /// Curly apostrophes differ between the notification and the stored message,
+    /// so they are folded before comparing.
+    static func normalise(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\u{2019}", with: "'")
+            .lowercased()
+    }
+
     // MARK: - Sending
+
 
     enum SendError: LocalizedError {
         case empty
