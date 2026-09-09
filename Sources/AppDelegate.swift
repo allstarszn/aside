@@ -118,9 +118,69 @@ final class TabView: NSView {
             chevron.centerXAnchor.constraint(equalTo: centerXAnchor),
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        registerForText()
+        wantsLayer = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard dropHighlighted else { return }
+        // Fills the tab so the drop target is unmistakable while dragging.
+        NSColor.controlAccentColor.withAlphaComponent(0.45).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1),
+                     xRadius: Layout.tabCorner, yRadius: Layout.tabCorner).fill()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Text dropped on the tab becomes a note. This is "capture from anywhere"
+    /// without a global shortcut: the tab is already on screen, so dragging a
+    /// selection onto it is a shorter gesture than any key combination, and it
+    /// costs no permission and claims no system-wide key.
+    var onDropText: ((String) -> Void)?
+
+    private var dropHighlighted = false {
+        didSet { if dropHighlighted != oldValue { needsDisplay = true } }
+    }
+
+    private func registerForText() {
+        registerForDraggedTypes([.string, .fileURL, .URL])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard readText(from: sender) != nil else { return [] }
+        dropHighlighted = true
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { dropHighlighted = false }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) { dropHighlighted = false }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        dropHighlighted = false
+        guard let text = readText(from: sender) else { return false }
+        onDropText?(text)
+        return true
+    }
+
+    /// Accepts a text selection, or a URL, or a text file's contents.
+    private func readText(from sender: NSDraggingInfo) -> String? {
+        let pasteboard = sender.draggingPasteboard
+        if let string = pasteboard.string(forType: .string),
+           !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return string
+        }
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+           let url = urls.first {
+            if url.isFileURL, let contents = try? String(contentsOf: url, encoding: .utf8),
+               !contents.isEmpty {
+                return contents
+            }
+            return url.absoluteString
+        }
+        return nil
+    }
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
@@ -297,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tab.autoresizingMask = [.width, .height]
         tab.onClick = { [weak self] in self?.toggle() }
         tab.onDrag = { [weak self] pointer in self?.dragTab(to: pointer) }
+        tab.onDropText = { [weak self] text in self?.captureDroppedText(text) }
         tabView = tab
         tabBlur.addSubview(tab)
 
@@ -434,6 +495,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrame(containerFrame(), display: true)
         container.frame = NSRect(origin: .zero, size: panel.frame.size)
         layoutPieces(animated: false)
+    }
+
+    /// Turns dropped text into a note and shows it, so the capture is visibly
+    /// confirmed rather than disappearing into a folder.
+    func captureDroppedText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        store.newNote()
+        store.text = NoteStore.capturedNote(from: trimmed)
+        store.flushSave()
+        if !isExpanded { expand() }
+        NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
     }
 
     private func toggle() { isExpanded ? collapse() : expand() }

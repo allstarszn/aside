@@ -330,3 +330,26 @@ final class NoteStore: ObservableObject {
         return candidate
     }
 }
+
+extension NoteStore {
+    /// Shapes captured text into a note: a title line it did not have, then the
+    /// text itself. Without this the first line becomes the filename, which for
+    /// a dragged paragraph produces an unreadable name.
+    static func capturedNote(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let firstLine = trimmed
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+
+        // A short first line is already a usable title, so leave it alone.
+        if firstLine.count <= 60 && !firstLine.isEmpty && trimmed.contains("\n") {
+            return trimmed
+        }
+        let stamp = Date().formatted(date: .abbreviated, time: .shortened)
+        let title = firstLine.isEmpty
+            ? "Captured \(stamp)"
+            : String(firstLine.prefix(48)).trimmingCharacters(in: .whitespaces) + "…"
+        return "\(title)\n\n\(trimmed)"
+    }
+}
