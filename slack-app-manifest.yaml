@@ -3,6 +3,16 @@
 # Create it at api.slack.com/apps with "From a manifest", paste this, then
 # Install to Workspace. The resulting User OAuth Token starts xoxp-.
 #
+# Two errors this flow throws that are not manifest problems:
+#
+#   "You're creating apps too quickly"  -> Slack rate limits app creation after a
+#   few attempts. Wait a minute and press Create and Install again.
+#
+#   "Installation was not completed"    -> the separate authorization page did not
+#   finish, usually because it was popup-blocked or closed. Allow the popup, or
+#   skip the wizard: the app already exists, so open it from Your Apps, go to
+#   OAuth & Permissions, and use Install to Workspace there instead.
+#
 # Everything below is a USER scope, deliberately. A user token posts under the
 # person's own name; a bot token posts as the app with an "APP" badge next to
 # it, which is not what anyone wants their reply to look like.
