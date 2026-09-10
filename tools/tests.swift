@@ -671,6 +671,79 @@ enum Tests {
                                                    date: when),
                                       of: viaNotification))
 
+        print("reading the inbox")
+        // Every one of these is a pure function over values. The model is never
+        // constructed and his real messages are never opened: the same two
+        // seams the snooze and thread tests use.
+        func reading(_ addressee: String, ask: Bool = true, auto: Bool = false,
+                     why: String = "asks something", task: String = "", owner: String = "") -> Reading {
+            Reading.make(addressee: addressee, namedPerson: "", isAsk: ask, isAutomated: auto,
+                         why: why, task: task, owner: owner)
+        }
+
+        check("aimed at him and asking: it needs him", reading("reader").needsMe)
+        check("aimed at somebody else: it does not",
+              !reading("other").needsMe)
+        check("aimed at the room: it does not", !reading("room").needsMe)
+        check("a broadcast: it does not", !reading("nobody").needsMe)
+        check("aimed at him but asking nothing: it does not",
+              !reading("reader", ask: false).needsMe)
+        // A bot can address him by name and still not need him. This is the
+        // rule the plain prompt kept breaking on his opt-in channels.
+        check("a bot addressing him by name: it does not",
+              !reading("reader", auto: true).needsMe)
+
+        check("the model saying 'the reader' still parses",
+              reading("the reader").addressee == .reader)
+        check("the model saying 'addressee: other' still parses",
+              reading("addressee: other").addressee == .other)
+        check("an answer it was never taught falls back to nobody",
+              reading("banana").addressee == .nobody)
+
+        check("an empty task is no task", reading("reader", task: "", owner: "me").task == nil)
+        check("a task owned by nobody is no task",
+              reading("reader", task: "push the call", owner: "nobody").task == nil)
+        // Measured: it answers "none", "n/a" and once the literal field name.
+        check("the placeholder 'none' is no task",
+              reading("reader", task: "none", owner: "them").task == nil)
+        check("a real task survives",
+              reading("reader", task: "send the brief", owner: "me").task == "send the brief")
+        check("a task he owes is marked his",
+              reading("reader", task: "send the brief", owner: "me").taskIsMine)
+        check("a task they owe is not marked his",
+              !reading("reader", task: "send the brief", owner: "them").taskIsMine)
+
+        let rambling = String(repeating: "a very long reason ", count: 10)
+        check("a runaway reason is clipped to fit the row",
+              reading("reader", why: rambling).why.count <= 60)
+
+        print("the card the model reads")
+        let grouped = Intelligence.card(app: "WhatsApp", sender: "Sam", room: "Pit Crew",
+                                        reader: "Alex Doe", body: "what time on wed")
+        // 🔴 The bug this exists to stop: run together as "Sam in Pit Crew",
+        // the model read the GROUP as the person being addressed.
+        check("the sender and the room are separate lines",
+              grouped.contains("Sender: Sam") && grouped.contains("Room: Pit Crew"))
+        check("the reader is named, so 'aimed at him' is answerable",
+              grouped.contains("Reader: Alex Doe"))
+        let oneToOne = Intelligence.card(app: "Messages", sender: "Jo", room: "",
+                                         reader: "Alex Doe", body: "call me")
+        check("a one to one chat has no room line", !oneToOne.contains("Room:"))
+        let forwarded = Intelligence.card(app: "Slack", sender: "Ana", room: "#build",
+                                     reader: "Alex Doe",
+                                     body: String(repeating: "x", count: 5000))
+        // The window is 4,096 tokens and a forwarded thread will eat it alone.
+        check("a forwarded wall of text is clipped", forwarded.count < 700)
+        let empty = Intelligence.card(app: "Messages", sender: "Ana", room: "",
+                                      reader: "Alex Doe", body: "   ")
+        check("an attachment with no text still makes a readable card",
+              empty.contains("(no text)"))
+
+        check("the instructions name the reader",
+              Intelligence.instructions(reader: "Alex Doe").contains("Alex Doe"))
+        check("the instructions address him by first name, not his full name",
+              Intelligence.instructions(reader: "Alex Doe").contains("reader is Alex."))
+
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         return failures
     }

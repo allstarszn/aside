@@ -6,5 +6,5 @@ cd "$(dirname "$0")"
 mkdir -p build
 swiftc -target arm64-apple-macos14.0 -o build/snapshot \
   $(ls Sources/*.swift | grep -v 'Sources/main.swift') \
-  tools/tests.swift tools/main.swift
+  tools/tests.swift tools/measure.swift tools/main.swift
 ./build/snapshot test

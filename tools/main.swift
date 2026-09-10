@@ -6,6 +6,11 @@ import SwiftUI
 if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "test" {
     exit(Int32(Tests.run() == 0 ? 0 : 1))
 }
+// Reads his real inbox through the real model. See tools/measure.swift.
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "triage" {
+    let limit = CommandLine.arguments.count > 2 ? Int(CommandLine.arguments[2]) : nil
+    exit(Int32(await Measure.run(limit: limit)))
+}
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "panel.png"
 let appearanceName: NSAppearance.Name =
     (CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "light") ? .aqua : .darkAqua
