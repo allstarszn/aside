@@ -82,9 +82,12 @@ struct ThreadView: View {
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
-                Text(InboxStore.appName(message.app))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 4) {
+                    PlatformMark(bundleID: message.app, size: 11)
+                    Text(InboxStore.appName(message.app))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             Spacer(minLength: 4)

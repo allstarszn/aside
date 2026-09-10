@@ -384,15 +384,31 @@ struct PanelView: View {
             }
 
             Menu {
-                Button("Reveal in Finder") { store.revealInFinder() }
-                Button("Notes Folder...") {
-                    (NSApp.delegate as? AppDelegate)?.chooseNotesFolder()
+                // Surface-specific first. Offering "Move Note to Trash" while
+                // reading the inbox is a control that cannot mean anything
+                // where it is being read.
+                if surface == .notes {
+                    Button("Reveal in Finder") { store.revealInFinder() }
+                    Button("Notes Folder...") {
+                        (NSApp.delegate as? AppDelegate)?.chooseNotesFolder()
+                    }
+                    Button("Move Note to Trash", role: .destructive) {
+                        if let id = store.selectedID { store.delete(id) }
+                    }
+                    Divider()
+                } else if surface == .inbox || surface == .unread {
+                    Button("Mark All Read") { inbox.markAllRead() }
+                    if !inbox.mutedApps.isEmpty {
+                        Menu("Muted") {
+                            ForEach(Array(inbox.mutedApps).sorted(), id: \.self) { app in
+                                Button("Unmute \(InboxStore.appName(app))") {
+                                    inbox.toggleMute(app)
+                                }
+                            }
+                        }
+                    }
+                    Divider()
                 }
-                Button("Move Note to Trash", role: .destructive) {
-                    if let id = store.selectedID { store.delete(id) }
-                }
-                Divider()
-                Divider()
                 if screens.options.count > 1 {
                     Menu("Show On") {
                         // Toggles, so macOS draws its own checkmarks. They behave
