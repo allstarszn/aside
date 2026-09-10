@@ -55,7 +55,7 @@ struct InboxView: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        PlatformMark(bundleID: tally.id, size: 14)
+                        AppBadge(bundleID: tally.id, size: 17)
                         if tally.unread > 0 {
                             Text("\(tally.unread)")
                                 .font(.system(size: 10, weight: .semibold))
@@ -251,7 +251,7 @@ private struct MessageRow: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 HStack(spacing: 5) {
-                    PlatformMark(bundleID: message.app, size: 12)
+                    AppBadge(bundleID: message.app, size: 15)
                     Text(InboxStore.appName(message.app))
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)

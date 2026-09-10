@@ -35,10 +35,17 @@ enum AppIcon {
     }
 }
 
-/// One app's mark, sized for a row. Falls back to nothing rather than to a
-/// generic placeholder: an app that is not installed sent no message, so this
-/// only goes missing when a bundle id is wrong, and a blank space says that
-/// more honestly than a grey square.
+/// One app's mark, sized for a row.
+///
+/// 🔴 These are the REAL icons, not drawings. Hand-drawn approximations were
+/// tried and rejected on sight: a pinwheel of four bars is not the Slack mark,
+/// it is a shape that resembles it, and at row size the difference is the whole
+/// point of showing a logo at all. Rendering the four side by side against the
+/// real icons settled it in one look.
+///
+/// Falls back to nothing rather than to a generic placeholder: an app that is
+/// not installed sent no message, so this only goes missing when a bundle id is
+/// wrong, and a blank space says that more honestly than a grey square.
 struct AppBadge: View {
     let bundleID: String
     var size: CGFloat = 12
