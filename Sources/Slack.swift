@@ -120,7 +120,8 @@ enum Slack {
     /// Form encoding, which every Slack method accepts. The read methods are
     /// sent this way rather than as JSON so a content-type refusal cannot be the
     /// reason a thread comes back empty.
-    private static func call(_ method: String, form: [String: String]) throws -> [String: Any] {
+    /// Not private: the unread reader lives in its own file and needs it.
+    static func call(_ method: String, form: [String: String]) throws -> [String: Any] {
         var request = try base(method)
         request.setValue("application/x-www-form-urlencoded; charset=utf-8",
                          forHTTPHeaderField: "Content-Type")

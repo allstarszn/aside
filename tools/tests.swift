@@ -603,6 +603,74 @@ enum Tests {
         check("case does not matter",
               Slack.bodyIndex(from: [(channel: "D1", texts: ["Send It"])])["send it"] == "D1")
 
+        print("slack unread")
+        func rawMessage(_ ts: Double, _ text: String, user: String = "U_THEM",
+                        subtype: String? = nil) -> Slack.RawMessage {
+            Slack.RawMessage(ts: ts, text: text, user: user, subtype: subtype)
+        }
+        let feed = [
+            rawMessage(100, "old and already read"),
+            rawMessage(200, "after the read mark"),
+            rawMessage(300, "mine", user: "U_ME"),
+            rawMessage(400, "joined", subtype: "channel_join"),
+            rawMessage(500, "   "),
+            rawMessage(600, "the newest one"),
+        ]
+        let picked = Slack.selectUnread(feed, cutoff: 150, me: "U_ME")
+        check("anything at or before the read mark is left out",
+              !picked.contains { $0.text == "old and already read" })
+        check("what came after it is picked up", picked.contains { $0.text == "after the read mark" })
+        check("his own messages are not things waiting for him",
+              !picked.contains { $0.text == "mine" })
+        check("joins are not conversation", !picked.contains { $0.subtype == "channel_join" })
+        check("a blank message is dropped", !picked.contains { $0.text == "   " })
+        check("it reads oldest first", picked.first?.ts ?? 0 < picked.last?.ts ?? 0)
+        check("only the real ones survive", picked.count == 2)
+        check("with no known user id, nothing is dropped as his",
+              Slack.selectUnread(feed, cutoff: 150, me: "").contains { $0.text == "mine" })
+
+        /* The watermark is what stops a cleared row coming straight back: Slack
+           keeps calling a message unread until something marks it read, and
+           marking it would write into his real Slack. */
+        check("the read mark is the starting point",
+              Slack.cutoff(lastRead: "500", watermark: nil) == 500)
+        check("a later watermark wins, so a cleared row stays cleared",
+              Slack.cutoff(lastRead: "500", watermark: 900) == 900)
+        check("an older watermark does not drag it back",
+              Slack.cutoff(lastRead: "500", watermark: 100) == 500)
+        check("an unreadable read mark is not treated as the epoch of everything",
+              Slack.cutoff(lastRead: "not a number", watermark: 42) == 42)
+
+        print("the same message arriving twice")
+        let when = Date()
+        func slackRow(_ id: String, body: String, room: String, at date: Date) -> InboxMessage {
+            InboxMessage(id: id, app: "com.tinyspeck.slackmacgap", title: "Ana",
+                         subtitle: room, body: body, date: date)
+        }
+        let viaNotification = slackRow("uuid-1", body: "can you look at this", room: "#build", at: when)
+        let viaAPI = slackRow("slack-C1-123", body: "can you look at this", room: "#build",
+                              at: when.addingTimeInterval(20))
+        check("the notification and the API row are one message",
+              InboxStore.isDuplicate(viaAPI, of: viaNotification))
+        check("the same words in a different room are not",
+              !InboxStore.isDuplicate(slackRow("x", body: "can you look at this", room: "#other", at: when),
+                                      of: viaNotification))
+        check("different words in the same room are not",
+              !InboxStore.isDuplicate(slackRow("x", body: "something else", room: "#build", at: when),
+                                      of: viaNotification))
+        check("the same words an hour apart are two messages",
+              !InboxStore.isDuplicate(slackRow("x", body: "can you look at this", room: "#build",
+                                               at: when.addingTimeInterval(3600)),
+                                      of: viaNotification))
+        check("an empty body never matches anything",
+              !InboxStore.isDuplicate(slackRow("x", body: "", room: "#build", at: when),
+                                      of: slackRow("y", body: "", room: "#build", at: when)))
+        check("a different app is never the same message",
+              !InboxStore.isDuplicate(InboxMessage(id: "x", app: "com.hnc.discord", title: "Ana",
+                                                   subtitle: "#build", body: "can you look at this",
+                                                   date: when),
+                                      of: viaNotification))
+
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         return failures
     }

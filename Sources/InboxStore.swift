@@ -67,6 +67,12 @@ final class InboxStore: ObservableObject {
 
     private let storeURL: URL
     private var timer: Timer?
+    private var slackTimer: Timer?
+    private var slackPolling = false
+    /// The newest Slack message already shown, per conversation. Kept locally so
+    /// clearing a row in aside never writes a read receipt into his real Slack.
+    private var slackWatermarks: [String: Double] =
+        UserDefaults.standard.dictionary(forKey: "slackWatermarks") as? [String: Double] ?? [:]
     private let maxKept = 500
 
     init() {
@@ -129,9 +135,77 @@ final class InboxStore: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.ingest()
         }
+        startSlack()
     }
 
-    func stop() { timer?.invalidate(); timer = nil }
+    func stop() {
+        timer?.invalidate(); timer = nil
+        slackTimer?.invalidate(); slackTimer = nil
+    }
+
+    // MARK: - Slack, which does not wait for a notification
+
+    /* Every other platform can only be heard through macOS notifications. Slack
+       keeps `last_read`, so it can be asked directly what has not been seen -
+       which matters because Slack had posted zero notifications on this machine
+       ever, measured 2026-09-10.
+
+       Polled far more slowly than the notification queue: it is two network calls
+       per conversation, against Slack's rate limits, rather than a local file
+       read. */
+    private func startSlack(interval: TimeInterval = 120) {
+        slackTimer?.invalidate()
+        pollSlack()
+        slackTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.pollSlack()
+        }
+    }
+
+    func pollSlack() {
+        guard Slack.isConnected, !slackPolling else { return }
+        slackPolling = true
+        let marks = slackWatermarks
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = try? Slack.unread(watermarks: marks)
+            DispatchQueue.main.async {
+                self?.slackPolling = false
+                guard let result else { return }
+                self?.absorb(result)
+            }
+        }
+    }
+
+    private func absorb(_ result: Slack.Unread) {
+        slackWatermarks = result.watermarks
+        UserDefaults.standard.set(result.watermarks, forKey: "slackWatermarks")
+        guard !result.messages.isEmpty else { return }
+
+        var changed = false
+        for message in result.messages {
+            guard !messages.contains(where: { $0.id == message.id || Self.isDuplicate(message, of: $0) })
+            else { continue }
+            messages.append(message)
+            changed = true
+        }
+        guard changed else { return }
+        messages.sort { $0.date > $1.date }
+        if messages.count > maxKept { messages = Array(messages.prefix(maxKept)) }
+        save()
+    }
+
+    /// The same Slack message can arrive twice: once as a macOS notification and
+    /// once from the API, with different ids. Same words in the same room at
+    /// close to the same moment is the same message.
+    static func isDuplicate(_ candidate: InboxMessage, of existing: InboxMessage) -> Bool {
+        guard candidate.app == existing.app else { return false }
+        guard IMessage.normalise(candidate.body) == IMessage.normalise(existing.body),
+              !candidate.body.isEmpty else { return false }
+        let room = { (message: InboxMessage) in
+            message.subtitle.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        guard room(candidate) == room(existing) else { return false }
+        return abs(candidate.date.timeIntervalSince(existing.date)) < 300
+    }
 
     /// A notification carries a sender NAME, not an address, so replying means
     /// matching it back to a real thread. Name first, then handle, and only
@@ -283,6 +357,7 @@ final class InboxStore: ObservableObject {
 
         var changed = false
         for message in found {
+            if messages.contains(where: { Self.isDuplicate(message, of: $0) }) { continue }
             if let position = index[message.id] {
                 // Backfill anything captured before a field existed, rather than
                 // leaving old rows permanently missing it.
