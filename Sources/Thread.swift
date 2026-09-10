@@ -19,7 +19,9 @@ struct ThreadMessage: Identifiable, Equatable {
 /// full history.
 enum ThreadSource: Equatable {
     case imessage(Conversation)
-    case slack(channel: String)
+    /// `channel` is empty for a direct message, which has no name in Slack's
+    /// API. The body is carried so the loader can find the DM by its text.
+    case slack(channel: String, body: String)
     case pooled(app: String)
 
     /// Whether this is the real conversation or only what aside has seen.
@@ -39,6 +41,10 @@ final class ThreadLoader: ObservableObject {
     @Published private(set) var messages: [ThreadMessage] = []
     @Published private(set) var loading = false
     @Published private(set) var failure: String?
+    /// The Slack conversation id this thread turned out to be. Resolving a DM is
+    /// a network call, so it happens here on a background queue and never in the
+    /// view initialiser, which SwiftUI re-runs on every publish.
+    @Published private(set) var resolvedChannel: String?
 
     let source: ThreadSource
     private let pooled: () -> [ThreadMessage]
@@ -83,14 +89,23 @@ final class ThreadLoader: ObservableObject {
                 DispatchQueue.main.async { self?.apply(found, error: nil) }
             }
 
-        case .slack(let channel):
+        case .slack(let channel, let body):
             loading = messages.isEmpty
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self else { return }
                 do {
-                    let found = try Slack.history(channel: channel)
+                    guard let id = try Slack.resolveConversation(channel: channel, body: body) else {
+                        DispatchQueue.main.async {
+                            self.apply([], error: "Could not work out which Slack conversation this is.")
+                        }
+                        return
+                    }
+                    let found = try Slack.history(channel: id)
                     let named = self.fillNames(found)
-                    DispatchQueue.main.async { self.apply(named, error: nil) }
+                    DispatchQueue.main.async {
+                        self.resolvedChannel = id
+                        self.apply(named, error: nil)
+                    }
                 } catch {
                     DispatchQueue.main.async {
                         self.apply([], error: error.localizedDescription)

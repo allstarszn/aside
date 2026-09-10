@@ -32,6 +32,15 @@ struct ThreadView: View {
             pooled: { [weak inbox] in inbox?.pooledThread(for: message) ?? [] }))
     }
 
+    /// A Slack DM has no name until the loader has found it, so the composer
+    /// takes the route from there once it exists.
+    private var effectiveRoute: InboxStore.ReplyRoute? {
+        if case .slack = loader.source, let id = loader.resolvedChannel {
+            return .slack(channel: id, name: title)
+        }
+        return route
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -183,7 +192,7 @@ struct ThreadView: View {
     @ViewBuilder
     private var composer: some View {
         Divider().opacity(0.5)
-        if let route {
+        if let route = effectiveRoute {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     TextField("Message \(route.label)", text: $draft, axis: .vertical)

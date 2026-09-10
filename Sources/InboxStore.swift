@@ -166,14 +166,16 @@ final class InboxStore: ObservableObject {
         /// the route carries what must be verified at send time.
         case whatsapp(sender: String, body: String)
         /// Slack needs no proof of what is on screen: the API addresses the
-        /// channel directly, so the only question is which channel.
-        case slack(channel: String)
+        /// channel directly, so the only question is which channel. `name` is
+        /// what to call it in the composer, since a resolved DM id reads as
+        /// "D08ABC" and nobody knows who that is.
+        case slack(channel: String, name: String)
 
         var label: String {
             switch self {
             case .imessage(let c): return c.name
             case .whatsapp: return "WhatsApp"
-            case .slack(let channel): return channel
+            case .slack(_, let name): return name
             }
         }
 
@@ -193,8 +195,11 @@ final class InboxStore: ObservableObject {
             // The notification's subtitle is the channel, e.g. "#launch".
             guard Slack.isConnected else { return nil }
             let channel = message.subtitle.trimmingCharacters(in: .whitespaces)
+            /* A direct message has no channel name to go on, and finding it means
+               a network call. That is the thread loader's job: this runs on the
+               main thread. The composer picks the route up from there. */
             guard !channel.isEmpty else { return nil }
-            return .slack(channel: channel)
+            return .slack(channel: channel, name: channel)
         }
         if message.app == "net.whatsapp.whatsapp" {
             // Only offered when WhatsApp is provably showing that conversation.
@@ -213,8 +218,9 @@ final class InboxStore: ObservableObject {
     /// personal account, so they fall back to what aside has collected itself.
     func threadSource(for message: InboxMessage) -> ThreadSource {
         if message.app == "com.tinyspeck.slackmacgap", Slack.isConnected {
-            let channel = message.subtitle.trimmingCharacters(in: .whitespaces)
-            if !channel.isEmpty { return .slack(channel: channel) }
+            // An empty channel means a DM, which the loader resolves by body.
+            return .slack(channel: message.subtitle.trimmingCharacters(in: .whitespaces),
+                          body: message.body)
         }
         if let conversation = replyTarget(for: message) { return .imessage(conversation) }
         return .pooled(app: message.app)
@@ -250,7 +256,7 @@ final class InboxStore: ObservableObject {
             try IMessage.send(body, to: conversation)
         case .whatsapp(let sender, let matching):
             try WhatsApp.reply(body, sender: sender, matching: matching)
-        case .slack(let channel):
+        case .slack(let channel, _):
             try Slack.post(body, to: channel)
         }
     }

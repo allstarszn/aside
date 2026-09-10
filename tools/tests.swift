@@ -548,7 +548,7 @@ enum Tests {
                                                  service: "iMessage", isGroup: false,
                                                  lastText: "", lastDate: now,
                                                  lastWasFromMe: false)).isComplete)
-        check("Slack has real history to read", ThreadSource.slack(channel: "#build").isComplete)
+        check("Slack has real history to read", ThreadSource.slack(channel: "#build", body: "hi").isComplete)
         check("Discord does not, and says so",
               !ThreadSource.pooled(app: "com.hnc.discord").isComplete)
 
@@ -567,6 +567,41 @@ enum Tests {
         check("several links in one line all resolve",
               Slack.plainText("<https://a.com|first> then <https://b.com|second>")
                 == "first then second")
+
+        print("slack conversations")
+        let channelEntry: [String: Any] = ["id": "C1", "name": "launch"]
+        check("a channel maps by name", Slack.conversationMap(from: channelEntry)["launch"] == "C1")
+        check("and by its hashed name", Slack.conversationMap(from: channelEntry)["#launch"] == "C1")
+        check("an id always maps to itself", Slack.conversationMap(from: channelEntry)["C1"] == "C1")
+
+        /* The gap this closes: a DM has NO name in Slack's API, only the other
+           person's user id, so keying on name alone dropped every direct message
+           out of the map. Five of his 23 conversations are DMs. */
+        let dmEntry: [String: Any] = ["id": "D9", "is_im": true, "user": "U42"]
+        check("a DM is not dropped for having no name", !Slack.conversationMap(from: dmEntry).isEmpty)
+        check("a DM maps by the person on the other end",
+              Slack.conversationMap(from: dmEntry)["U42"] == "D9")
+        check("an entry with no id maps to nothing",
+              Slack.conversationMap(from: ["name": "orphan"]).isEmpty)
+
+        print("finding a slack DM by its text")
+        let histories = [
+            (channel: "D1", texts: ["can you send the deck", "thanks"]),
+            (channel: "D2", texts: ["running late"]),
+        ]
+        let dmIndex = Slack.bodyIndex(from: histories)
+        check("a message points at its conversation", dmIndex["can you send the deck"] == "D1")
+        check("every conversation is covered", dmIndex["running late"] == "D2")
+        check("the first writer wins a line said in two places",
+              Slack.bodyIndex(from: [(channel: "D1", texts: ["ok"]),
+                                     (channel: "D2", texts: ["ok"])])["ok"] == "D1")
+        check("blank lines are never indexed",
+              Slack.bodyIndex(from: [(channel: "D1", texts: ["", "   "])]).isEmpty)
+        // The notification and the stored message differ on apostrophes.
+        check("a curly apostrophe still matches",
+              Slack.bodyIndex(from: [(channel: "D1", texts: ["don\u{2019}t forget"])])["don't forget"] == "D1")
+        check("case does not matter",
+              Slack.bodyIndex(from: [(channel: "D1", texts: ["Send It"])])["send it"] == "D1")
 
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         return failures

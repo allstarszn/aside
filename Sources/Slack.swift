@@ -172,6 +172,16 @@ enum Slack {
     /// notification names a channel but Slack needs its id.
     static func channels() throws -> [String: String] {
         var map: [String: String] = [:]
+        for entry in try conversationEntries() {
+            for (key, id) in conversationMap(from: entry) { map[key] = id }
+        }
+        return map
+    }
+
+    /// The raw conversation list, paged. Kept separate from the mapping so the
+    /// mapping can be tested without a network call.
+    static func conversationEntries() throws -> [[String: Any]] {
+        var out: [[String: Any]] = []
         var cursor: String?
         repeat {
             var body: [String: Any] = [
@@ -181,16 +191,37 @@ enum Slack {
             ]
             if let cursor, !cursor.isEmpty { body["cursor"] = cursor }
             let response = try call("users.conversations", body: body)
-            for entry in (response["channels"] as? [[String: Any]]) ?? [] {
-                guard let id = entry["id"] as? String else { continue }
-                if let name = entry["name"] as? String, !name.isEmpty {
-                    map[name.lowercased()] = id
-                    map["#" + name.lowercased()] = id
-                }
-            }
+            out.append(contentsOf: (response["channels"] as? [[String: Any]]) ?? [])
             cursor = (response["response_metadata"] as? [String: Any])?["next_cursor"] as? String
         } while !(cursor ?? "").isEmpty
+        return out
+    }
+
+    /// Every key one conversation can be looked up by.
+    ///
+    /// 🔴 **A DM has no `name`.** It carries the other person's `user` id instead,
+    /// so keying only on `name` dropped every direct message out of the map. That
+    /// went unnoticed because no Slack notification had ever reached the inbox.
+    static func conversationMap(from entry: [String: Any]) -> [String: String] {
+        guard let id = entry["id"] as? String else { return [:] }
+        var map: [String: String] = [id: id]
+        if let name = entry["name"] as? String, !name.isEmpty {
+            map[name.lowercased()] = id
+            map["#" + name.lowercased()] = id
+        }
+        // A DM's only handle is the person on the other end.
+        if entry["is_im"] as? Bool == true, let user = entry["user"] as? String, !user.isEmpty {
+            map[user] = id
+        }
         return map
+    }
+
+    /// The ids of every direct and group message conversation.
+    static func directConversationIDs() throws -> [String] {
+        try conversationEntries().compactMap { entry in
+            let isDirect = entry["is_im"] as? Bool == true || entry["is_mpim"] as? Bool == true
+            return isDirect ? entry["id"] as? String : nil
+        }
     }
 
     /// Posts as the user. `channel` may be an id or a name like `#launch`.
@@ -258,6 +289,63 @@ enum Slack {
         }
         // Slack answers newest first; a conversation reads the other way.
         return Array(out.reversed())
+    }
+
+    /* A DM notification names a PERSON, and Slack's API will not turn a person
+       into a conversation without the `users:read` scope this app deliberately
+       never asks for.
+
+       But the notification's body IS a real message sitting in one of his DMs,
+       so the DM can be identified by its text. Exactly the trick that took
+       iMessage reply matching from 28% to 92%, and it needs only the `im:history`
+       scope that is already granted. */
+    private static var directIndex: [String: String] = [:]
+    private static var directIndexBuiltAt: Date?
+
+    /// Text of a recent direct message, mapped to the conversation it came from.
+    /// Rebuilt at most once a minute: it is one API call per DM.
+    static func directBodyIndex(maxAge: TimeInterval = 60) throws -> [String: String] {
+        if let builtAt = directIndexBuiltAt, Date().timeIntervalSince(builtAt) < maxAge {
+            return directIndex
+        }
+        var histories: [(channel: String, texts: [String])] = []
+        for id in try directConversationIDs() {
+            let response = try call("conversations.history", form: ["channel": id, "limit": "20"])
+            let texts = ((response["messages"] as? [[String: Any]]) ?? [])
+                .compactMap { $0["text"] as? String }
+                .map(plainText)
+            histories.append((channel: id, texts: texts))
+        }
+        directIndex = bodyIndex(from: histories)
+        directIndexBuiltAt = Date()
+        return directIndex
+    }
+
+    /// Newest first, so the first writer wins and stays the freshest.
+    static func bodyIndex(from histories: [(channel: String, texts: [String])]) -> [String: String] {
+        var index: [String: String] = [:]
+        for history in histories {
+            for text in history.texts {
+                let key = IMessage.normalise(text)
+                guard !key.isEmpty, index[key] == nil else { continue }
+                index[key] = history.channel
+            }
+        }
+        return index
+    }
+
+    /// The conversation a notification belongs to.
+    ///
+    /// A named channel resolves by name. A DM has no name, so it is found by the
+    /// text of the message that produced the notification. **nil means no reply
+    /// box**, never a guess: posting to the wrong conversation is worse than not
+    /// posting at all.
+    static func resolveConversation(channel: String, body: String) throws -> String? {
+        let named = channel.trimmingCharacters(in: .whitespaces)
+        if !named.isEmpty { return try channelID(for: named) }
+        let key = IMessage.normalise(body)
+        guard !key.isEmpty else { return nil }
+        return try directBodyIndex()[key]
     }
 
     private static let noise: Set<String> = [
