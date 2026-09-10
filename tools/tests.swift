@@ -217,6 +217,26 @@ enum Tests {
               authorize.contains("users") && authorize.contains("read"))
         check("the shipped build is configured", !realID.isEmpty)
 
+        print("the edit menu that makes paste work")
+        // 🔴 aside is an accessory app with no menu bar, so it had NO main menu.
+        // In AppKit ⌘C/⌘V/⌘X/⌘A are key equivalents on the Edit menu, so with
+        // no menu they matched nothing and copy and paste had never worked
+        // ANYWHERE in the app. Nobody noticed because typing works and text
+        // usually arrives by dragging.
+        let menu = AppDelegate.editMenu()
+        let edit = menu.item(at: 0)?.submenu
+        check("there is an edit menu", edit != nil)
+        let shortcuts = (edit?.items ?? []).reduce(into: [String: String]()) { map, item in
+            if !item.keyEquivalent.isEmpty { map[item.keyEquivalent] = item.action.map(NSStringFromSelector) }
+        }
+        check("paste is on cmd V", shortcuts["v"] == "paste:")
+        check("copy is on cmd C", shortcuts["c"] == "copy:")
+        check("cut is on cmd X", shortcuts["x"] == "cut:")
+        check("select all is on cmd A", shortcuts["a"] == "selectAll:")
+        check("undo is on cmd Z", shortcuts["z"] == "undo:")
+        check("every shortcut actually has an action",
+              (edit?.items ?? []).allSatisfy { $0.isSeparatorItem || $0.action != nil })
+
         print("pasting a slack token")
         // 🔴 Trimmed always. Copying a token out of a web page drags whitespace
         // and newlines with it, and Slack then rejects it with an error that

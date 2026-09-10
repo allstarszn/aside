@@ -352,6 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &watchers)
 
+        NSApp.mainMenu = Self.editMenu()
         buildWindow()
         layoutPieces(animated: false)
         panel.orderFrontRegardless()
@@ -474,6 +475,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: Window construction
+
+    /// The Edit menu, and the reason aside needs one at all.
+    ///
+    /// 🔴 aside is an LSUIElement accessory app with no menu bar, so it had no
+    /// main menu. In AppKit, ⌘C, ⌘V, ⌘X and ⌘A are KEY EQUIVALENTS on the Edit
+    /// menu: with no menu to match them against, they do nothing. **Copy and
+    /// paste had never worked anywhere in the app** - not in a note, not in a
+    /// reply, not in Ask - and nobody noticed because typing worked fine and
+    /// text arrives here by dragging.
+    ///
+    /// The menu is never SHOWN: an accessory app displays no menu bar. It
+    /// exists purely so the responder chain can route these four shortcuts.
+    static func editMenu() -> NSMenu {
+        let main = NSMenu()
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "Edit")
+        // Selectors as strings on purpose: `copy(_:)` collides with
+        // NSObject.copy() and will not compile as a #selector here.
+        let entries: [(String, String, String)] = [
+            ("Undo", "undo:", "z"),
+            ("Redo", "redo:", "Z"),
+            ("", "", ""),
+            ("Cut", "cut:", "x"),
+            ("Copy", "copy:", "c"),
+            ("Paste", "paste:", "v"),
+            ("Select All", "selectAll:", "a"),
+        ]
+        for (title, selector, key) in entries {
+            if title.isEmpty { edit.addItem(.separator()); continue }
+            edit.addItem(withTitle: title, action: Selector(selector), keyEquivalent: key)
+        }
+        editItem.submenu = edit
+        main.addItem(editItem)
+        return main
+    }
 
     private func buildWindow() {
         let frame = containerFrame()
