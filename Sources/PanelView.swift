@@ -435,13 +435,19 @@ struct PanelView: View {
                 // touches the keychain, and an uncached read on a redrawing
                 // path is what cost about a hundred password prompts.
                 if Slack.isConfigured {
+                    // 🔴 Connect is ALWAYS offered, even when already connected.
+                    // Hiding it behind Disconnect meant reconnecting required
+                    // throwing away a working token first, and if the connect
+                    // then failed there was no way back in. Connecting again
+                    // simply replaces the token, so there is nothing to protect.
+                    Button(slackConnected ? "Reconnect Slack..." : "Connect Slack...") {
+                        Slack.beginConnect()
+                    }
                     if slackConnected {
                         Button("Disconnect Slack") {
                             Slack.clearToken()
                             slackConnected = false
                         }
-                    } else {
-                        Button("Connect Slack...") { Slack.beginConnect() }
                     }
                     // The way back in while Slack's own install page is broken.
                     Button("Paste Slack Token...") {
