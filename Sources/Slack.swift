@@ -34,10 +34,20 @@ enum Slack {
         var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
+        let stored = SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
+        if stored { cachedToken = token }
+        return stored
     }
 
+    /// Held in memory for the life of the process.
+    ///
+    /// 🔴 Every keychain read from a freshly built binary is a separate password
+    /// prompt, and a request used to read the token on every single call. One
+    /// thread load could ask three times.
+    private static var cachedToken: String?
+
     static func token() -> String? {
+        if let cachedToken { return cachedToken }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -48,10 +58,12 @@ enum Slack {
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        cachedToken = String(data: data, encoding: .utf8)
+        return cachedToken
     }
 
     static func clearToken() {
+        cachedToken = nil
         SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -59,6 +71,14 @@ enum Slack {
         ] as CFDictionary)
     }
 
+    /// Whether a token exists at all.
+    ///
+    /// 🔴 This is called from a VIEW INITIALISER, which SwiftUI re-runs on every
+    /// publish - and the inbox publishes every 3 seconds. An uncached keychain
+    /// read there is a password prompt every 3 seconds, because an ad-hoc signed
+    /// build is a new program to the keychain on every install. It cost Brandon
+    /// about a hundred prompts on 2026-09-09. Never read a credential on a path
+    /// that a redraw can reach.
     static var isConnected: Bool { token() != nil }
 
     // MARK: - Errors
