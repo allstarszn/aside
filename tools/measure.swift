@@ -56,7 +56,8 @@ enum Measure {
         do {
             let started = Date()
             let answer = try await AskReader().answer(
-                question: question, context: AskView.context(from: used), history: "")
+                question: question, context: AskView.context(from: used), history: "",
+                state: AskView.snapshot(messages: inbox.visible, notes: notes))
             print("\nanswer (\(String(format: "%.2fs", Date().timeIntervalSince(started)))):")
             print(answer)
         } catch {

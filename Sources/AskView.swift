@@ -45,6 +45,73 @@ struct AskView: View {
         }.joined(separator: "\n\n")
     }
 
+    /// How many recent messages per app the model is always shown.
+    static let perAppRecent = 3
+
+    /// The state of the inbox right now, in words.
+    ///
+    /// 🔴 THE FIX for the whole class of questions that broke it. "Who was the
+    /// last person to message me on iMessage" is not a SEARCH question, it is a
+    /// DATABASE question: aside already knows the answer from sorted messages
+    /// with a sender, an app and a date. Text search went looking for the word
+    /// "person", found nothing useful, and the model said it could not find
+    /// that information while the answer sat one sort away.
+    ///
+    /// So this is attached to EVERY question. Grouped per app rather than as
+    /// one recency list, because a question is usually about one app and the
+    /// last iMessage can otherwise be buried under twenty Slack rows.
+    static func snapshot(messages: [InboxMessage], notes: [Note], now: Date = Date()) -> String {
+        guard !messages.isEmpty || !notes.isEmpty else { return "" }
+        var lines: [String] = []
+
+        let unread = messages.filter { !$0.read }
+        if !unread.isEmpty {
+            let byApp = Dictionary(grouping: unread, by: { InboxStore.appName($0.app) })
+                .map { "\($0.key) \($0.value.count)" }
+                .sorted()
+            lines.append("Unread: \(unread.count) total (\(byApp.joined(separator: ", ")))")
+        } else if !messages.isEmpty {
+            lines.append("Unread: none")
+        }
+
+        let byApp = Dictionary(grouping: messages, by: { InboxStore.appName($0.app) })
+        for app in byApp.keys.sorted() {
+            let recent = (byApp[app] ?? [])
+                .sorted { $0.date > $1.date }
+                .prefix(perAppRecent)
+            guard !recent.isEmpty else { continue }
+            lines.append("Latest on \(app), newest first:")
+            for message in recent {
+                let who = message.title.isEmpty ? "unknown" : message.title
+                let room = message.subtitle.isEmpty ? "" : " in \(message.subtitle)"
+                let body = message.body
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespaces)
+                    .prefix(70)
+                lines.append("  - \(who)\(room), \(ago(from: message.date, to: now)): \(body)")
+            }
+        }
+
+        let titles = notes.prefix(8).map { $0.title }.filter { !$0.isEmpty }
+        if !titles.isEmpty { lines.append("Notes: \(titles.joined(separator: ", "))") }
+
+        return "What is in aside right now:\n" + lines.joined(separator: "\n")
+    }
+
+    /// Plain words for how long ago, because a timestamp makes the model do
+    /// arithmetic and it gets it wrong.
+    static func ago(from date: Date, to now: Date) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        if seconds < 90 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60)) minutes ago" }
+        if seconds < 86400 {
+            let hours = Int(seconds / 3600)
+            return hours == 1 ? "an hour ago" : "\(hours) hours ago"
+        }
+        let days = Int(seconds / 86400)
+        return days == 1 ? "yesterday" : "\(days) days ago"
+    }
+
     /// Strips a role label the model prefixed its own answer with.
     ///
     /// 🔴 A prompt that ends in "Them: hey" reads as a transcript, so the model
@@ -248,13 +315,18 @@ struct AskView: View {
                              messages: inbox.visible)
         let used = Array(hits.prefix(Self.maxHits))
         let history = Self.transcript(turns)
+        // Attached to EVERY question, not just when search finds something:
+        // "who last messaged me on iMessage" is answerable from this and never
+        // from a text search.
+        let state = Self.snapshot(messages: inbox.visible, notes: store.notes)
         let turn = Turn(question: question, answer: nil,
                         sources: used.map { "\($0.source): \($0.title)" })
         turns.append(turn)
         let id = turn.id
 
         Task {
-            let outcome = await answer(question: question, hits: used, history: history)
+            let outcome = await answer(question: question, hits: used,
+                                       history: history, state: state)
             await MainActor.run {
                 if let index = turns.firstIndex(where: { $0.id == id }) {
                     turns[index].answer = outcome.text
@@ -269,7 +341,7 @@ struct AskView: View {
     }
 
     private func answer(question: String, hits: [SearchHit],
-                        history: String) async -> (text: String, failed: Bool) {
+                        history: String, state: String) async -> (text: String, failed: Bool) {
         #if canImport(FoundationModels)
         guard #available(macOS 26, *), Intelligence.isReady else {
             return ("The on-device model is not available.", true)
@@ -278,7 +350,7 @@ struct AskView: View {
             let reader = try AskReader()
             return (try await reader.answer(question: question,
                                             context: Self.context(from: hits),
-                                            history: history), false)
+                                            history: history, state: state), false)
         } catch {
             return ("Could not read that. Try a shorter question.", true)
         }
@@ -307,27 +379,40 @@ actor AskReader {
     Talk normally. If they say hello or make small talk, just reply like a \
     person would, briefly. If they ask a general question, answer it.
 
-    Sometimes you will be given passages from their own notes and messages. \
+    You are given a live summary of what is in aside right now: unread counts, \
+    the latest messages per app with who sent them and when, and their note \
+    titles. That summary is CURRENT and AUTHORITATIVE. Answer questions like \
+    "who last messaged me on iMessage" or "how many unread do I have" straight \
+    from it, and never say you cannot find something that is sitting in it.
+
+    You may also be given passages found by searching their notes and messages. \
     Use them when they help, and quote the useful part. If they do not fit the \
     question, ignore them completely and answer anyway. Never mention that you \
-    were given passages.
+    were given a summary or passages.
 
     Never invent a name, a date, a number or a message that was not in the \
     passages. If you are asked about something in their notes or messages and \
     the passages do not cover it, say you could not find it.
+
+    The messages and notes belong to THEM, so say "you" and "your", never "I" \
+    or "my". "You have three unread", not "I don't have any unread messages".
 
     Keep answers short, two or three sentences unless more is genuinely needed.
     """
 
     init() throws {}
 
-    func answer(question: String, context: String, history: String) async throws -> String {
+    func answer(question: String, context: String, history: String,
+                state: String) async throws -> String {
         // 🔴 A fresh session per turn, with the history passed in the prompt.
         // A long-lived session grows its transcript until it blows the 4,096
         // token window, which is how the message reader silently died after
         // roughly forty messages.
         let session = LanguageModelSession(instructions: Self.instructions)
         var prompt = ""
+        // State first: it is the authoritative answer to most simple questions,
+        // and burying it under passages makes the model reach for the passages.
+        if !state.isEmpty { prompt += state + "\n\n" }
         if !history.isEmpty { prompt += "Earlier in this conversation:\n\(history)\n\n" }
         if !context.isEmpty { prompt += "Passages from their notes and messages:\n\(context)\n\n" }
         prompt += question

@@ -159,6 +159,47 @@ enum Tests {
         check("a colon inside a real answer survives",
               AskView.clean("the note says: call at 4") == "the note says: call at 4")
 
+        print("what Ask knows without searching")
+        let asOf = Date()
+        // 🔴 "Who last messaged me on iMessage" is a DATABASE question, not a
+        // search one. Text search went looking for the word "person", found
+        // nothing, and it answered "I couldn't find that information" while the
+        // answer sat one sort away. The snapshot is attached to EVERY question.
+        let inboxState = [
+            InboxMessage(id: "a", app: "com.apple.mobilesms", title: "Jo", subtitle: "",
+                         body: "call me", date: asOf.addingTimeInterval(-600)),
+            InboxMessage(id: "b", app: "com.apple.mobilesms", title: "Sam", subtitle: "",
+                         body: "older one", date: asOf.addingTimeInterval(-90000)),
+            InboxMessage(id: "c", app: "com.tinyspeck.slackmacgap", title: "Ana",
+                         subtitle: "#build", body: "shipped", date: asOf.addingTimeInterval(-3600),
+                         read: true),
+        ]
+        let state = AskView.snapshot(messages: inboxState, notes: [], now: asOf)
+        check("the newest message per app is named", state.contains("Jo"))
+        check("apps are grouped, so one app cannot bury another",
+              state.contains("Latest on Messages") && state.contains("Latest on Slack"))
+        check("unread is counted", state.contains("Unread: 2"))
+        check("a read message is not counted as unread", !state.contains("Unread: 3"))
+        // Plain words, because a timestamp makes the model do arithmetic badly.
+        check("recency is in words", state.contains("minutes ago"))
+        check("yesterday is named, not measured in hours",
+              AskView.ago(from: asOf.addingTimeInterval(-90000), to: asOf) == "yesterday")
+        check("an hour reads naturally",
+              AskView.ago(from: asOf.addingTimeInterval(-3600), to: asOf) == "an hour ago")
+        check("just now is not zero minutes",
+              AskView.ago(from: asOf.addingTimeInterval(-5), to: asOf) == "just now")
+        check("an empty aside describes nothing",
+              AskView.snapshot(messages: [], notes: [], now: asOf).isEmpty)
+        // The window is 4,096 tokens, so the snapshot is a budget too.
+        let flood = (1...200).map { index in
+            InboxMessage(id: "f\(index)", app: "com.hnc.discord", title: "Person \(index)",
+                         subtitle: "#room", body: String(repeating: "chatter ", count: 40),
+                         date: asOf.addingTimeInterval(-Double(index)))
+        }
+        check("a flooded app still only contributes a few lines",
+              AskView.snapshot(messages: flood, notes: [], now: asOf)
+                  .components(separatedBy: "\n  - ").count - 1 == AskView.perAppRecent)
+
         print("display choice")
         let builtIn = ScreenRef(id: 1, name: "Built-in Retina Display")
         let ultrawide = ScreenRef(id: 2, name: "ED340CU S3")
