@@ -79,7 +79,8 @@ enum Slack {
                 case "invalid_auth", "token_revoked", "account_inactive":
                     return "Slack rejected the connection. Reconnect it."
                 case "not_in_channel": return "You are not a member of that channel."
-                case "missing_scope": return "This Slack connection is missing the chat:write permission."
+                case "missing_scope":
+                    return "This Slack connection is missing a permission it needs. Reinstall the aside Slack app to grant it."
                 case "ratelimited": return "Slack is rate limiting. Try again shortly."
                 default: return "Slack said: \(code)"
                 }
@@ -90,6 +91,26 @@ enum Slack {
     // MARK: - API
 
     private static func call(_ method: String, body: [String: Any]) throws -> [String: Any] {
+        var request = try base(method)
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return try perform(request)
+    }
+
+    /// Form encoding, which every Slack method accepts. The read methods are
+    /// sent this way rather than as JSON so a content-type refusal cannot be the
+    /// reason a thread comes back empty.
+    private static func call(_ method: String, form: [String: String]) throws -> [String: Any] {
+        var request = try base(method)
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8",
+                         forHTTPHeaderField: "Content-Type")
+        var parts = URLComponents()
+        parts.queryItems = form.map { URLQueryItem(name: $0.key, value: $0.value) }
+        request.httpBody = (parts.percentEncodedQuery ?? "").data(using: .utf8)
+        return try perform(request)
+    }
+
+    private static func base(_ method: String) throws -> URLRequest {
         guard let token = token() else { throw SlackError.notConnected }
         guard let url = URL(string: "https://slack.com/api/\(method)") else {
             throw SlackError.api("bad_url")
@@ -97,9 +118,11 @@ enum Slack {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 12
+        return request
+    }
+
+    private static func perform(_ request: URLRequest) throws -> [String: Any] {
 
         // Slack is a network call from a UI action, so it is done synchronously
         // on a background-safe semaphore rather than blocking with a spin.
@@ -156,16 +179,125 @@ enum Slack {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw SlackError.empty }
 
-        var target = channel
-        if !channel.hasPrefix("C") && !channel.hasPrefix("D") && !channel.hasPrefix("G") {
-            let known = try channels()
-            guard let id = known[channel.lowercased()] else {
-                throw SlackError.unknownChannel(channel)
-            }
-            target = id
-        }
-        _ = try call("chat.postMessage", body: ["channel": target, "text": trimmed])
+        _ = try call("chat.postMessage",
+                     body: ["channel": try channelID(for: channel), "text": trimmed])
         return true
+    }
+
+    /// A notification names a channel; the API needs its id. An id is passed
+    /// straight through so this costs nothing when the caller already has one.
+    static func channelID(for channel: String) throws -> String {
+        if channel.hasPrefix("C") || channel.hasPrefix("D") || channel.hasPrefix("G") {
+            return channel
+        }
+        let known = try channels()
+        guard let id = known[channel.lowercased()] else {
+            throw SlackError.unknownChannel(channel)
+        }
+        return id
+    }
+
+    // MARK: - Reading a real conversation
+
+    /// The actual back and forth in a channel or DM, oldest first.
+    ///
+    /// This is what turns a Slack row from "someone said one line" into a
+    /// conversation. It needs the `*:history` scopes, which are in the app
+    /// manifest, so it works on any connection installed from it.
+    static func history(channel: String, limit: Int = 30) throws -> [ThreadMessage] {
+        let id = try channelID(for: channel)
+        let response = try call("conversations.history",
+                                form: ["channel": id, "limit": String(limit)])
+        let me = (try? myUserID()) ?? ""
+
+        var out: [ThreadMessage] = []
+        for entry in (response["messages"] as? [[String: Any]]) ?? [] {
+            // Joins and leaves are not conversation.
+            if let subtype = entry["subtype"] as? String, noise.contains(subtype) { continue }
+            let text = plainText(entry["text"] as? String ?? "")
+            guard !text.isEmpty else { continue }
+
+            let user = entry["user"] as? String ?? ""
+            let stamp = Double(entry["ts"] as? String ?? "") ?? 0
+            /* A display name is only in the payload when Slack feels like
+               including it. Resolving one properly needs the `users:read` scope,
+               which this app does not ask for, so an unnamed message is left
+               unnamed and the caller fills it in from what it already knows. */
+            let profile = entry["user_profile"] as? [String: Any]
+            let name = (profile?["display_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (profile?["real_name"] as? String)
+                ?? (entry["username"] as? String)
+                ?? ""
+
+            out.append(ThreadMessage(
+                id: "slack-\(entry["ts"] as? String ?? UUID().uuidString)",
+                text: text,
+                date: Date(timeIntervalSince1970: stamp),
+                fromMe: !me.isEmpty && user == me,
+                sender: name))
+        }
+        // Slack answers newest first; a conversation reads the other way.
+        return Array(out.reversed())
+    }
+
+    private static let noise: Set<String> = [
+        "channel_join", "channel_leave", "group_join", "group_leave",
+        "channel_topic", "channel_purpose", "channel_name",
+    ]
+
+    /// Cached because every message in a thread is compared against it.
+    private static var cachedUserID: String?
+
+    /// The id Slack knows the token's owner by, which is how "mine" is told
+    /// apart from "theirs".
+    static func myUserID() throws -> String {
+        if let cachedUserID { return cachedUserID }
+        let response = try call("auth.test", form: [:])
+        let id = response["user_id"] as? String ?? ""
+        cachedUserID = id
+        return id
+    }
+
+    /// Slack ships its own markup in message text. Left alone, a thread reads
+    /// `<https://infoos.ai|the dashboard>` instead of "the dashboard".
+    static func plainText(_ raw: String) -> String {
+        var text = raw
+
+        // <url|label> keeps the label; <url> keeps the url. A leading @ or # is
+        // a mention Slack could not resolve, so the label is all there is.
+        if let regex = try? NSRegularExpression(pattern: "<([^<>|]*)(?:\\|([^<>]*))?>") {
+            let full = NSRange(location: 0, length: (text as NSString).length)
+            var result = ""
+            var cursor = 0
+            let string = text as NSString
+            for match in regex.matches(in: text, range: full) {
+                result += string.substring(with: NSRange(location: cursor,
+                                                         length: match.range.location - cursor))
+                let target = match.range(at: 1).location == NSNotFound
+                    ? "" : string.substring(with: match.range(at: 1))
+                let label = match.range(at: 2).location == NSNotFound
+                    ? "" : string.substring(with: match.range(at: 2))
+                if !label.isEmpty {
+                    result += label
+                } else if target.hasPrefix("@") || target.hasPrefix("#") {
+                    result += target
+                } else if target.hasPrefix("!") {
+                    // <!channel>, <!here>: the alert forms.
+                    result += "@" + target.dropFirst()
+                } else {
+                    result += target
+                }
+                cursor = match.range.upperBound
+            }
+            result += string.substring(from: cursor)
+            text = result
+        }
+
+        return text
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Confirms the token works and reports who it posts as.

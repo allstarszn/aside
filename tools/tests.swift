@@ -427,6 +427,147 @@ enum Tests {
         check("an unknown bundle still reads as something",
               InboxStore.appName("com.acme.widget") == "Widget")
 
+        print("markdown")
+        func span(_ text: String, _ style: Markdown.Style) -> String? {
+            guard let found = Markdown.spans(in: text).first(where: { $0.style == style })
+            else { return nil }
+            return (text as NSString).substring(with: found.range)
+        }
+        func hasStyle(_ text: String, _ style: Markdown.Style) -> Bool {
+            Markdown.spans(in: text).contains { $0.style == style }
+        }
+        check("a heading's text is found", span("## Section", .heading(2)) == "Section")
+        check("the hashes are marked as syntax", span("## Section", .marker) == "##")
+        check("the level is the number of hashes", hasStyle("### Deep", .heading(3)))
+        check("bold is found", span("say **this** now", .bold) == "this")
+        check("italic is found", span("say *this* now", .italic) == "this")
+        check("code is found", span("run `swift build` here", .code) == "swift build")
+        check("a quote is found", span("> remember this", .quote) == "remember this")
+        check("a rule is found", span("---", .rule) == "---")
+        check("a bullet is dimmed to syntax", span("- milk", .marker) == "-")
+        check("a checkbox line still reads as a bullet", span("- [ ] call Max", .marker) == "-")
+
+        // Backticks mean "show this literally", so nothing inside them is styled.
+        check("code suppresses the bold inside it", !hasStyle("`**not bold**`", .bold))
+        check("but the code itself is still found", span("`**not bold**`", .code) == "**not bold**")
+        // The underscores in a function name are not italics.
+        check("snake_case is not italic", !hasStyle("call get_client_config now", .italic))
+        check("a bullet's star is not italic", !hasStyle("* buy milk", .italic))
+        check("bold is not read as two italics", !hasStyle("say **this** now", .italic))
+
+        /* Notes are .md files in the vault and the checkbox toggle addresses
+           boxes by character offset, so styling must never move a character. */
+        let sample = "# Title\nsome **bold** and `code`\n- [ ] a box\n> quoted"
+        check("every span lands inside the text",
+              Markdown.spans(in: sample).allSatisfy {
+                  $0.range.location >= 0
+                      && NSMaxRange($0.range) <= (sample as NSString).length
+              })
+        check("empty text yields nothing", Markdown.spans(in: "").isEmpty)
+        check("plain prose yields nothing", Markdown.spans(in: "just a normal sentence").isEmpty)
+
+        print("snooze")
+        var zone = Calendar(identifier: .gregorian)
+        zone.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        func moment(_ hour: Int, _ minute: Int = 0) -> Date {
+            zone.date(from: DateComponents(year: 2026, month: 9, day: 9,
+                                           hour: hour, minute: minute)) ?? Date()
+        }
+        let morning = moment(10)
+        check("an hour is an hour",
+              Snooze.date(for: .hour, from: morning, calendar: zone) == morning.addingTimeInterval(3600))
+        check("three hours is three hours",
+              Snooze.date(for: .threeHours, from: morning, calendar: zone) == morning.addingTimeInterval(10800))
+
+        let tonight = Snooze.date(for: .evening, from: morning, calendar: zone)
+        check("this evening is 6pm", zone.component(.hour, from: tonight) == 18)
+        check("asked in the morning, it is still today",
+              zone.isDate(tonight, inSameDayAs: morning))
+
+        // The bug this guards: "this evening" asked at 9pm must not hand back a
+        // time that has already gone, which would fire the moment it was set.
+        let lateNight = moment(21)
+        let nextEvening = Snooze.date(for: .evening, from: lateNight, calendar: zone)
+        check("asked at 9pm, it cannot be in the past", nextEvening > lateNight)
+        check("it lands on the next evening instead", zone.component(.hour, from: nextEvening) == 18)
+
+        let nextMorning = Snooze.date(for: .tomorrow, from: lateNight, calendar: zone)
+        check("tomorrow is 9am", zone.component(.hour, from: nextMorning) == 9)
+        check("and it is the following day", !zone.isDate(nextMorning, inSameDayAs: lateNight))
+
+        print("snoozed messages leave the inbox")
+        func row(_ id: String, app: String = "com.hnc.discord", title: String = "Ana",
+                 subtitle: String = "", body: String = "hi",
+                 date: Date = Date(), snoozed: Date? = nil) -> InboxMessage {
+            InboxMessage(id: id, app: app, title: title, subtitle: subtitle,
+                         body: body, date: date, read: false, deepLink: nil,
+                         snoozedUntil: snoozed)
+        }
+        let now = Date()
+        let putAway = row("a", snoozed: now.addingTimeInterval(3600))
+        let waiting = row("b")
+        let expired = row("c", snoozed: now.addingTimeInterval(-60))
+
+        check("a snooze in the future hides it", putAway.isSnoozed(at: now))
+        check("a snooze that has passed does not", !expired.isSnoozed(at: now))
+        check("no snooze is not snoozed", !waiting.isSnoozed(at: now))
+
+        let pile = [putAway, waiting, expired]
+        check("the inbox shows only what is due",
+              InboxStore.inboxList(pile, muted: [], now: now).map(\.id) == ["b", "c"])
+        check("the snoozed list holds the rest",
+              InboxStore.snoozedList(pile, muted: [], now: now).map(\.id) == ["a"])
+        check("a muted app is hidden from the inbox",
+              InboxStore.inboxList(pile, muted: ["com.hnc.discord"], now: now).isEmpty)
+        check("and from the snoozed list too",
+              InboxStore.snoozedList(pile, muted: ["com.hnc.discord"], now: now).isEmpty)
+        check("the soonest to return is first",
+              InboxStore.snoozedList([row("late", snoozed: now.addingTimeInterval(9000)),
+                                      row("soon", snoozed: now.addingTimeInterval(600))],
+                                     muted: [], now: now).map(\.id) == ["soon", "late"])
+
+        print("threads")
+        let inRoom = [
+            row("1", subtitle: "#build", body: "one", date: now.addingTimeInterval(-300)),
+            row("2", title: "Bo", subtitle: "#build", body: "two", date: now.addingTimeInterval(-200)),
+            row("3", subtitle: "#other", body: "three", date: now.addingTimeInterval(-100)),
+            row("4", app: "net.whatsapp.whatsapp", body: "four", date: now),
+        ]
+        let room = InboxStore.pooledThread(for: inRoom[0], in: inRoom)
+        check("a room's thread holds everyone in it", room.count == 2)
+        check("it reads oldest first", room.first?.text == "one")
+        check("another room is not mixed in", !room.contains { $0.text == "three" })
+        check("the sender is carried, so a group can be named", room.first?.sender == "Ana")
+        check("a pooled message is never marked as mine", room.allSatisfy { !$0.fromMe })
+
+        let direct = InboxStore.pooledThread(for: inRoom[3], in: inRoom)
+        check("with no room, the sender is the thread", direct.map(\.text) == ["four"])
+
+        check("iMessage has real history to read",
+              ThreadSource.imessage(Conversation(id: 1, guid: "g", handle: "+1", name: "A",
+                                                 service: "iMessage", isGroup: false,
+                                                 lastText: "", lastDate: now,
+                                                 lastWasFromMe: false)).isComplete)
+        check("Slack has real history to read", ThreadSource.slack(channel: "#build").isComplete)
+        check("Discord does not, and says so",
+              !ThreadSource.pooled(app: "com.hnc.discord").isComplete)
+
+        print("slack message text")
+        check("a link keeps its label",
+              Slack.plainText("see <https://infoos.ai|the dashboard>") == "see the dashboard")
+        check("a bare link keeps the url",
+              Slack.plainText("<https://infoos.ai>") == "https://infoos.ai")
+        check("a named mention reads as the name",
+              Slack.plainText("<@U123|dustin> ping") == "dustin ping")
+        check("an unresolvable mention is left alone, not blanked",
+              Slack.plainText("<@U123> ping") == "@U123 ping")
+        check("a channel alert reads as one", Slack.plainText("<!here> ready") == "@here ready")
+        check("entities are decoded", Slack.plainText("Max &amp; Neil") == "Max & Neil")
+        check("plain text is untouched", Slack.plainText("just words") == "just words")
+        check("several links in one line all resolve",
+              Slack.plainText("<https://a.com|first> then <https://b.com|second>")
+                == "first then second")
+
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
         return failures
     }

@@ -13,6 +13,17 @@ struct InboxMessage: Identifiable, Codable, Equatable {
     var read: Bool = false
     /// Supplied by the app itself, pointing at the exact conversation.
     var deepLink: String? = nil
+    /// Put away until this moment. A snoozed message leaves the inbox entirely
+    /// rather than sitting there greyed out: a list you have trained yourself to
+    /// skip is the same as no list.
+    var snoozedUntil: Date? = nil
+
+    /// `now` is a parameter so this is testable at any moment rather than only
+    /// at whatever time the suite happens to run.
+    func isSnoozed(at now: Date = Date()) -> Bool {
+        guard let snoozedUntil else { return false }
+        return snoozedUntil > now
+    }
 
     /// What the row should say when the sender is in the title and the room in
     /// the subtitle, which is how Slack and Discord post.
@@ -66,6 +77,19 @@ final class InboxStore: ObservableObject {
         load()
     }
 
+    /// A store holding exactly these messages, backed by a throwaway file.
+    ///
+    /// The design preview renders offscreen with this rather than the real
+    /// inbox, so reviewing a layout never puts his actual messages into a
+    /// screenshot and never writes over the running app's store.
+    init(preview messages: [InboxMessage]) {
+        storeURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("aside-preview-inbox.json")
+        self.messages = messages
+        canRead = true
+        checkedAt = Date()
+    }
+
     deinit { timer?.invalidate() }
 
     var mutedApps: Set<String> {
@@ -73,9 +97,22 @@ final class InboxStore: ObservableObject {
         set { UserDefaults.standard.set(Array(newValue), forKey: "mutedApps"); objectWillChange.send() }
     }
 
-    var visible: [InboxMessage] {
-        let muted = mutedApps
-        return messages.filter { !muted.contains($0.app) }
+    var visible: [InboxMessage] { Self.inboxList(messages, muted: mutedApps) }
+
+    /// Put away, soonest to return first.
+    var snoozed: [InboxMessage] { Self.snoozedList(messages, muted: mutedApps) }
+
+    /// What belongs in the inbox right now: nothing muted, nothing snoozed.
+    static func inboxList(_ messages: [InboxMessage], muted: Set<String>,
+                          now: Date = Date()) -> [InboxMessage] {
+        messages.filter { !muted.contains($0.app) && !$0.isSnoozed(at: now) }
+    }
+
+    static func snoozedList(_ messages: [InboxMessage], muted: Set<String>,
+                            now: Date = Date()) -> [InboxMessage] {
+        messages
+            .filter { $0.isSnoozed(at: now) && !muted.contains($0.app) }
+            .sorted { ($0.snoozedUntil ?? .distantFuture) < ($1.snoozedUntil ?? .distantFuture) }
     }
 
     var unreadCount: Int { visible.filter { !$0.read }.count }
@@ -170,6 +207,43 @@ final class InboxStore: ObservableObject {
         return nil
     }
 
+    /// Where the real conversation behind a row can be read from.
+    ///
+    /// Slack and iMessage have real history. WhatsApp and Discord do not, for a
+    /// personal account, so they fall back to what aside has collected itself.
+    func threadSource(for message: InboxMessage) -> ThreadSource {
+        if message.app == "com.tinyspeck.slackmacgap", Slack.isConnected {
+            let channel = message.subtitle.trimmingCharacters(in: .whitespaces)
+            if !channel.isEmpty { return .slack(channel: channel) }
+        }
+        if let conversation = replyTarget(for: message) { return .imessage(conversation) }
+        return .pooled(app: message.app)
+    }
+
+    /// Everything aside has collected from the same conversation. This is the
+    /// whole thread for WhatsApp and Discord, and the name source for Slack.
+    func pooledThread(for message: InboxMessage) -> [ThreadMessage] {
+        Self.pooledThread(for: message, in: messages)
+    }
+
+    static func pooledThread(for message: InboxMessage,
+                             in messages: [InboxMessage]) -> [ThreadMessage] {
+        let room = message.subtitle.trimmingCharacters(in: .whitespaces)
+        return messages
+            .filter { candidate in
+                guard candidate.app == message.app else { return false }
+                /* A group's messages come from different people, so the room is
+                   what holds them together. A one to one thread has only the
+                   sender to go on. */
+                return room.isEmpty
+                    ? candidate.title == message.title
+                    : candidate.subtitle.trimmingCharacters(in: .whitespaces) == room
+            }
+            .sorted { $0.date < $1.date }
+            .map { ThreadMessage(id: $0.id, text: $0.body, date: $0.date,
+                                 fromMe: false, sender: $0.title) }
+    }
+
     func send(_ body: String, via route: ReplyRoute) throws {
         switch route {
         case .imessage(let conversation):
@@ -188,6 +262,7 @@ final class InboxStore: ObservableObject {
     /// Pulls anything new out of the system database and keeps it.
     func ingest() {
         checkedAt = Date()
+        wakeSnoozed()
         if let found = IMessage.conversations(limit: 60) {
             threads = found
             bodyIndex = IMessage.inboundBodyIndex()
@@ -317,9 +392,44 @@ final class InboxStore: ObservableObject {
     }
 
     func markAllRead() {
-        guard messages.contains(where: { !$0.read }) else { return }
-        for index in messages.indices { messages[index].read = true }
+        // A snoozed message is not in the inbox, so "mark all read" is not about
+        // it. Clearing it here would defeat the point of the snooze coming back.
+        guard messages.contains(where: { !$0.read && !$0.isSnoozed() }) else { return }
+        for index in messages.indices where !messages[index].isSnoozed() {
+            messages[index].read = true
+        }
         save()
+    }
+
+    /// Puts a message away until `until`.
+    func snooze(_ id: String, until: Date) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[index].snoozedUntil = until
+        // Deliberately unread: snoozing is a reminder, so the tab's dot should
+        // light up when it comes back.
+        messages[index].read = false
+        save()
+    }
+
+    func unsnooze(_ id: String) {
+        guard let index = messages.firstIndex(where: { $0.id == id }),
+              messages[index].snoozedUntil != nil else { return }
+        messages[index].snoozedUntil = nil
+        save()
+    }
+
+    /// Returns anything whose snooze has expired. Called on every poll, so a
+    /// message reappears on its own without the panel having to be reopened.
+    @discardableResult
+    func wakeSnoozed(now: Date = Date()) -> Int {
+        var woke = 0
+        for index in messages.indices {
+            guard let until = messages[index].snoozedUntil, until <= now else { continue }
+            messages[index].snoozedUntil = nil
+            woke += 1
+        }
+        if woke > 0 { save() }
+        return woke
     }
 
     func clear() {

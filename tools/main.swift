@@ -20,6 +20,23 @@ try? FileManager.default.removeItem(at: tmp)
 try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
 
 let samples: [(String, String)] = [
+    // Markdown-heavy on purpose: this is the note the preview is for when the
+    // styling changes.
+    ("Launch checklist", """
+    ## Before the call
+
+    Send **the deck** and the *one pager*. Run `./ship.sh` first.
+
+    - [ ] confirm the room
+    - [x] send the invite
+    - reply to Max
+
+    > he reads the stage column as a total
+
+    ---
+    ### After
+    Write it up.
+    """),
     ("Ad angles for Q4", "hook: nobody trusts a dashboard they cannot audit\n\ntest against the founder-led list first, then cold"),
     ("Call with Max - notes", "wants the stage column to read cumulative\nasked about payment plan installments"),
     ("Groceries", "coffee\noat milk\nrice"),
@@ -34,8 +51,28 @@ for (name, body) in samples {
 }
 
 let store = NoteStore(directory: tmp)
-let inboxStore = InboxStore()
-inboxStore.ingest()
+
+/* The thread preview runs on invented messages on purpose: rendering the real
+   inbox would put his actual conversations into a screenshot, and the point of
+   the preview is the layout, not the content. */
+let pretendThread: [InboxMessage] = [
+    InboxMessage(id: "p1", app: "com.hnc.discord", title: "Ana Reyes", subtitle: "#build",
+                 body: "did the tracker land?", date: Date().addingTimeInterval(-5400)),
+    InboxMessage(id: "p2", app: "com.hnc.discord", title: "Ana Reyes", subtitle: "#build",
+                 body: "asking because the numbers moved this morning", date: Date().addingTimeInterval(-5340)),
+    InboxMessage(id: "p3", app: "com.hnc.discord", title: "Theo", subtitle: "#build",
+                 body: "shipped it an hour ago, campaign views are right now", date: Date().addingTimeInterval(-900)),
+    InboxMessage(id: "p4", app: "com.hnc.discord", title: "Ana Reyes", subtitle: "#build",
+                 body: "perfect, thank you", date: Date().addingTimeInterval(-120)),
+]
+
+let inboxStore: InboxStore
+if mode == "thread" {
+    inboxStore = InboxStore(preview: pretendThread)
+} else {
+    inboxStore = InboxStore()
+    inboxStore.ingest()
+}
 let size = NSSize(width: Layout.defaultPanelWidth, height: 520)
 
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -54,9 +91,16 @@ backdrop.layer?.masksToBounds = true
 backdrop.layer?.borderWidth = 1
 backdrop.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
 
-let hosting = NSHostingView(rootView: PanelView(store: store, inbox: inboxStore, onClose: {},
-                                               startWithList: startWithList,
-                                               startOn: mode == "inbox" ? .inbox : .notes))
+let hosting: NSHostingView<AnyView>
+if mode == "thread" {
+    hosting = NSHostingView(rootView: AnyView(
+        ThreadView(message: pretendThread[3], inbox: inboxStore, onBack: {}, onSaveAsNote: { _ in })))
+} else {
+    hosting = NSHostingView(rootView: AnyView(
+        PanelView(store: store, inbox: inboxStore, onClose: {},
+                  startWithList: startWithList,
+                  startOn: mode == "inbox" ? .inbox : .notes)))
+}
 hosting.frame = backdrop.bounds
 hosting.autoresizingMask = [.width, .height]
 backdrop.addSubview(hosting)

@@ -5,20 +5,25 @@ struct InboxView: View {
     @ObservedObject var inbox: InboxStore
     var onSaveAsNote: (InboxMessage) -> Void
 
-    /// Which row has its reply box open. Only one at a time.
-    @State private var replyingTo: String?
-    @State private var draft = ""
-    @State private var sending = false
-    @State private var failure: String?
+    /// Which conversation is open. Tapping a row reads the thread here rather
+    /// than throwing the user into the other app, which is the whole point.
+    @State private var openThread: InboxMessage?
+    /// Snoozed messages are out of the way by default. This is the peek.
+    @State private var showingSnoozed = false
 
     var body: some View {
         Group {
-            if inbox.checkedAt == nil {
+            if let openThread {
+                ThreadView(message: openThread, inbox: inbox,
+                           onBack: { withAnimation(.easeOut(duration: 0.16)) { self.openThread = nil } },
+                           onSaveAsNote: onSaveAsNote)
+                    .transition(.opacity)
+            } else if inbox.checkedAt == nil {
                 // Never claim a permission is missing before having tried to use it.
                 Color.clear
             } else if !inbox.canRead {
                 permissionPrompt
-            } else if inbox.visible.isEmpty {
+            } else if inbox.visible.isEmpty && inbox.snoozed.isEmpty {
                 emptyState
             } else {
                 list
@@ -30,35 +35,46 @@ struct InboxView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                if !inbox.snoozed.isEmpty {
+                    snoozedHeader
+                    if showingSnoozed {
+                        ForEach(inbox.snoozed) { message in
+                            MessageRow(message: message,
+                                       snoozedLabel: message.snoozedUntil.map { Snooze.label(until: $0) })
+                                .contentShape(Rectangle())
+                                .onTapGesture { inbox.unsnooze(message.id) }
+                                .contextMenu {
+                                    Button("Bring Back Now") { inbox.unsnooze(message.id) }
+                                    Button("Save as Note") { onSaveAsNote(message) }
+                                }
+                        }
+                        Divider().opacity(0.4).padding(.leading, 20).padding(.vertical, 4)
+                    }
+                }
+
                 ForEach(Array(inbox.visible.enumerated()), id: \.element.id) { index, message in
                     VStack(spacing: 0) {
                         if index > 0 { Divider().opacity(0.4).padding(.leading, 20) }
-                        MessageRow(message: message)
+                        MessageRow(message: message, snoozedLabel: nil)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        inbox.markRead(message.id)
-                        // A thread we can answer opens a reply box instead of
-                        // throwing the user into another app.
-                        if inbox.replyRoute(for: message) != nil {
-                            withAnimation(.easeOut(duration: 0.16)) {
-                                replyingTo = replyingTo == message.id ? nil : message.id
-                                draft = ""
-                                failure = nil
-                            }
-                        } else {
-                            inbox.openSource(message)
-                        }
+                        withAnimation(.easeOut(duration: 0.16)) { openThread = message }
                     }
                     .contextMenu {
                         Button("Save as Note") { onSaveAsNote(message) }
                         Button("Open \(InboxStore.appName(message.app))") { inbox.openSource(message) }
                         Divider()
+                        Menu("Snooze") {
+                            ForEach(Snooze.allCases) { option in
+                                Button(option.label) {
+                                    inbox.snooze(message.id,
+                                                 until: Snooze.date(for: option, from: Date()))
+                                }
+                            }
+                        }
+                        Divider()
                         Button("Mute \(InboxStore.appName(message.app))") { inbox.toggleMute(message.app) }
-                    }
-
-                    if replyingTo == message.id, let route = inbox.replyRoute(for: message) {
-                        replyBox(for: message, route: route)
                     }
                 }
             }
@@ -67,64 +83,25 @@ struct InboxView: View {
         }
     }
 
-    private func replyBox(for message: InboxMessage, route: InboxStore.ReplyRoute) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                TextField("Reply to \(route.label)", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1 ... 4)
-                    .font(.system(size: 12.5))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Color.primary.opacity(0.07))
-                    )
-                    .onSubmit { send(via: route, message: message) }
-                    .disabled(sending)
-
-                Button {
-                    send(via: route, message: message)
-                } label: {
-                    Image(systemName: sending ? "clock" : "arrow.up.circle.fill")
-                        .font(.system(size: 17))
-                }
-                .buttonStyle(.plain)
-                .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
-            }
-
-            if let failure {
-                Text(failure)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("Sends as \(route.service). Return to send.")
+    private var snoozedHeader: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.16)) { showingSnoozed.toggle() }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "moon.zzz")
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                Text("\(inbox.snoozed.count) snoozed")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Image(systemName: showingSnoozed ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
             }
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
-        .transition(.opacity)
-    }
-
-    private func send(via route: InboxStore.ReplyRoute, message: InboxMessage) {
-        let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, !sending else { return }
-        sending = true
-        failure = nil
-        do {
-            try inbox.send(body, via: route)
-            draft = ""
-            sending = false
-            withAnimation(.easeOut(duration: 0.16)) { replyingTo = nil }
-        } catch {
-            sending = false
-            failure = error.localizedDescription
-        }
+        .buttonStyle(.plain)
     }
 
     private var emptyState: some View {
@@ -172,11 +149,13 @@ struct InboxView: View {
 
 private struct MessageRow: View {
     let message: InboxMessage
+    /// Set only while the message is put away, so the row says when it returns.
+    let snoozedLabel: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Circle()
-                .fill(message.read ? Color.clear : Color.accentColor)
+                .fill(message.read || snoozedLabel != nil ? Color.clear : Color.accentColor)
                 .frame(width: 6, height: 6)
                 .padding(.top, 6)
 
@@ -196,13 +175,23 @@ private struct MessageRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                Text(InboxStore.appName(message.app))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 5) {
+                    Text(InboxStore.appName(message.app))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    if let snoozedLabel {
+                        Image(systemName: "moon.zzz")
+                            .font(.system(size: 8.5))
+                        Text(snoozedLabel)
+                            .font(.system(size: 10))
+                    }
+                }
+                .foregroundStyle(.tertiary)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
+        .opacity(snoozedLabel == nil ? 1 : 0.65)
     }
 }
 

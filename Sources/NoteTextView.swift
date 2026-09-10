@@ -113,10 +113,65 @@ struct NoteTextView: NSViewRepresentable {
                 storage.setAttributes(attributes(inTitle: true),
                                       range: NSRange(location: 0, length: titleLength))
             }
+            styleMarkdown(in: storage, titleLength: titleLength)
             styleLinks(in: storage, string: string)
             styleCheckboxes(in: storage, string: string)
             storage.endEditing()
             textView.typingAttributes = attributes(inTitle: isInTitle(textView))
+        }
+
+        /// Markdown, styled where it sits. The syntax stays visible but dimmed:
+        /// hiding it would move every character after it the moment the cursor
+        /// entered the line, and these are `.md` files that other tools read.
+        private func styleMarkdown(in storage: NSTextStorage, titleLength: Int) {
+            for span in Markdown.spans(in: storage.string) {
+                guard NSMaxRange(span.range) <= storage.length else { continue }
+
+                switch span.style {
+                case .marker, .rule:
+                    storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor,
+                                         range: span.range)
+
+                case .heading(let level):
+                    // The first line is already the note's title, so a `#` on it
+                    // dims to nothing rather than stacking a second size on top.
+                    guard span.range.location >= titleLength else { continue }
+                    let size: CGFloat = [1: 16.5, 2: 15, 3: 14][level] ?? 13.5
+                    storage.addAttributes([
+                        .font: NSFont.systemFont(ofSize: size, weight: .semibold),
+                        .foregroundColor: NSColor.labelColor,
+                    ], range: span.range)
+
+                case .bold:
+                    restyle(storage, span.range) { NSFontManager.shared.convert($0, toHaveTrait: .boldFontMask) }
+
+                case .italic:
+                    restyle(storage, span.range) { NSFontManager.shared.convert($0, toHaveTrait: .italicFontMask) }
+
+                case .code:
+                    let size = (storage.attribute(.font, at: span.range.location, effectiveRange: nil)
+                                as? NSFont)?.pointSize ?? 13.5
+                    storage.addAttributes([
+                        .font: NSFont.monospacedSystemFont(ofSize: size - 1, weight: .regular),
+                        .backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.12),
+                    ], range: span.range)
+
+                case .quote:
+                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
+                                         range: span.range)
+                    restyle(storage, span.range) { NSFontManager.shared.convert($0, toHaveTrait: .italicFontMask) }
+                }
+            }
+        }
+
+        /// Adds a trait to whatever font is already there, so bold inside a
+        /// heading stays heading-sized instead of dropping to the body size.
+        private func restyle(_ storage: NSTextStorage, _ range: NSRange,
+                             _ transform: (NSFont) -> NSFont) {
+            storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
+                let font = value as? NSFont ?? NSFont.systemFont(ofSize: 13.5)
+                storage.addAttribute(.font, value: transform(font), range: subrange)
+            }
         }
 
         /// Real clickable links, so a note can hold a URL and still be plain text.

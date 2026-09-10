@@ -95,6 +95,75 @@ enum IMessage {
         return String(cString: raw)
     }
 
+    /// The real back and forth in one thread, oldest last out of the database
+    /// and flipped so it reads top to bottom.
+    ///
+    /// Reactions and system rows are excluded: `associated_message_type` is
+    /// non-zero for a tapback, which would otherwise fill a thread with "Liked"
+    /// entries that are not messages.
+    static func messages(in chatIdentifier: String, limit: Int = 40) -> [ThreadMessage] {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            sqlite3_close(handle)
+            return []
+        }
+        defer { sqlite3_close(handle) }
+
+        let sql = """
+        select m.ROWID, m.text, m.attributedBody, m.date, m.is_from_me,
+               coalesce(h.id, ''), m.cache_has_attachments
+        from message m
+        join chat_message_join j on j.message_id = m.ROWID
+        join chat c on c.ROWID = j.chat_id
+        left join handle h on h.ROWID = m.handle_id
+        where c.chat_identifier = ? and m.associated_message_type = 0 and m.item_type = 0
+        order by m.date desc
+        limit ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (chatIdentifier as NSString).utf8String, -1, transient)
+        sqlite3_bind_int(statement, 2, Int32(limit))
+
+        var out: [ThreadMessage] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let rowID = sqlite3_column_int64(statement, 0)
+
+            /* text is NULL for 99.3% of real messages: the content lives in the
+               attributedBody typedstream. Without the decoder a thread renders
+               almost entirely blank. */
+            var body = column(statement, 1)
+            if body.isEmpty, let blob = sqlite3_column_blob(statement, 2) {
+                let data = Data(bytes: blob, count: Int(sqlite3_column_bytes(statement, 2)))
+                body = AttributedBody.text(from: data) ?? ""
+            }
+
+            let raw = sqlite3_column_int64(statement, 3)
+            let seconds = raw > 1_000_000_000_000 ? Double(raw) / 1_000_000_000 : Double(raw)
+            let fromMe = sqlite3_column_int(statement, 4) == 1
+            let sender = column(statement, 5)
+            let hasAttachment = sqlite3_column_int(statement, 6) == 1
+
+            if body.isEmpty {
+                // An image or file has no text at all. Saying so beats an empty
+                // bubble that looks like the decoder failed.
+                guard hasAttachment else { continue }
+                body = "Attachment"
+            }
+
+            out.append(ThreadMessage(id: "imessage-\(rowID)", text: body,
+                                     date: Date(timeIntervalSinceReferenceDate: seconds),
+                                     fromMe: fromMe,
+                                     sender: fromMe ? "" : sender))
+        }
+        return Array(out.reversed())
+    }
+
+    /// SQLite must copy a bound string: the Swift one is gone by the time the
+    /// statement runs otherwise.
+    private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
     // MARK: - Finding the thread a notification came from
 
     /* A notification carries a sender NAME, but chat.db has no display_name for
