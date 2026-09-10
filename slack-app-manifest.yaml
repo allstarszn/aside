@@ -37,6 +37,10 @@ oauth_config:
       - groups:history
       - im:history
       - mpim:history
+      # Turn the user id on a message into a person's name. Without this every
+      # sender in a Slack thread renders blank, because Slack never puts a name
+      # on the message itself.
+      - users:read
 
 settings:
   org_deploy_enabled: false

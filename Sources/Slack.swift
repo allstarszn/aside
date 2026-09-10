@@ -285,12 +285,13 @@ enum Slack {
                 ?? (entry["username"] as? String)
                 ?? ""
 
+            let fromMe = !me.isEmpty && user == me
             out.append(ThreadMessage(
                 id: "slack-\(entry["ts"] as? String ?? UUID().uuidString)",
                 text: text,
                 date: Date(timeIntervalSince1970: stamp),
-                fromMe: !me.isEmpty && user == me,
-                sender: name))
+                fromMe: fromMe,
+                sender: name.isEmpty && !fromMe ? (userName(user) ?? "") : name))
         }
         // Slack answers newest first; a conversation reads the other way.
         return Array(out.reversed())
@@ -363,6 +364,41 @@ enum Slack {
         "channel_join", "channel_leave", "group_join", "group_leave",
         "channel_topic", "channel_purpose", "channel_name",
     ]
+
+    // MARK: - Names
+
+    /* 🔴 Slack returns a USER ID on every message and will not turn one into a
+       name without `users:read`. Measured 2026-09-10: the installed app does not
+       have it, so this returns nil and the caller falls back to matching against
+       the notification that carried the same line.
+
+       The scope is in the manifest now, so a reinstall of the Slack app makes
+       names appear with no further code change. */
+    private static var userNames: [String: String] = [:]
+    private static var namesUnavailable = false
+
+    /// The person behind a Slack user id, or nil when it cannot be known.
+    static func userName(_ id: String) -> String? {
+        guard !id.isEmpty, !namesUnavailable else { return nil }
+        if let cached = userNames[id] { return cached }
+        do {
+            let response = try call("users.info", form: ["user": id])
+            let user = response["user"] as? [String: Any] ?? [:]
+            let profile = user["profile"] as? [String: Any] ?? [:]
+            let name = (profile["display_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (profile["real_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (user["name"] as? String)
+            guard let name, !name.isEmpty else { return nil }
+            userNames[id] = name
+            return name
+        } catch SlackError.api("missing_scope") {
+            // Asking again for every message would be 30 pointless calls a thread.
+            namesUnavailable = true
+            return nil
+        } catch {
+            return nil
+        }
+    }
 
     /// Cached because every message in a thread is compared against it.
     private static var cachedUserID: String?
