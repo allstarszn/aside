@@ -11,6 +11,9 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "triage" {
     let limit = CommandLine.arguments.count > 2 ? Int(CommandLine.arguments[2]) : nil
     exit(Int32(await Measure.run(limit: limit)))
 }
+if CommandLine.arguments.count > 2 && CommandLine.arguments[1] == "ask" {
+    exit(Int32(await Measure.ask(CommandLine.arguments[2])))
+}
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "panel.png"
 let appearanceName: NSAppearance.Name =
     (CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "light") ? .aqua : .darkAqua
@@ -72,11 +75,27 @@ let pretendThread: [InboxMessage] = [
 ]
 
 let inboxStore: InboxStore
-if mode == "thread" {
-    inboxStore = InboxStore(preview: pretendThread)
-} else {
+// The preview opens on whichever surface was asked for. A model rather than a
+// parameter, because the rail and the panel share one in the real app.
+let previewSurfaces = SurfaceModel()
+switch mode {
+case "inbox": previewSurfaces.current = .inbox
+case "unread": previewSurfaces.current = .unread
+case "ask": previewSurfaces.current = .ask
+default: previewSurfaces.current = .notes
+}
+
+/* 🔴 INVENTED MESSAGES ALWAYS, unless the real inbox is asked for by name.
+   The seam used to cover only the thread preview, so every other mode read his
+   actual inbox: rendering the Unread surface put real Slack messages, a real
+   email address and a real phone number into a screenshot. A preview exists to
+   review a LAYOUT, and a layout does not need real people in it. Pass "live" as
+   the mode only when the real data is the point. */
+if mode == "live" {
     inboxStore = InboxStore()
     inboxStore.ingest()
+} else {
+    inboxStore = InboxStore(preview: pretendThread)
 }
 let size = NSSize(width: Layout.defaultPanelWidth, height: 520)
 
@@ -102,9 +121,8 @@ if mode == "thread" {
         ThreadView(message: pretendThread[3], inbox: inboxStore, onBack: {}, onSaveAsNote: { _ in })))
 } else {
     hosting = NSHostingView(rootView: AnyView(
-        PanelView(store: store, inbox: inboxStore, onClose: {},
-                  startWithList: startWithList,
-                  startOn: mode == "inbox" ? .inbox : .notes)))
+        PanelView(store: store, inbox: inboxStore, surfaces: previewSurfaces,
+                  onClose: {}, startWithList: startWithList)))
 }
 hosting.frame = backdrop.bounds
 hosting.autoresizingMask = [.width, .height]

@@ -11,21 +11,61 @@ enum Layout {
 
     /// The unread dot sits on the tab's top inboard corner and deliberately
     /// overhangs both edges, so it reads as a badge rather than as part of the tab.
+    /// The unread dot sits on the BELL's slot, not the rail corner, so it
+    /// marks the surface it belongs to rather than the app as a whole.
     static func badgeFrame() -> NSRect {
-        NSRect(x: -4, y: tabHeight - 7, width: 12, height: 12)
+        let slot = railSlotFrame(1)
+        return NSRect(x: -4, y: slot.maxY - 9, width: 12, height: 12)
+    }
+
+    /// Where slot `index` sits, counting from the TOP. The rail view lays its
+    /// icons out with this, `railSlot` reads clicks back with the same
+    /// arithmetic, and the badge is placed by it, so the three cannot disagree.
+    static func railSlotFrame(_ index: Int) -> NSRect {
+        let top = railPadding + CGFloat(index) * (railIcon + railGap)
+        return NSRect(x: 0, y: tabHeight - top - railIcon, width: railIcon, height: railIcon)
     }
 
     static func clampWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minPanelWidth), maxPanelWidth)
     }
     static let panelMaxHeight: CGFloat = 660
-    static let tabWidth: CGFloat = 26
-    static let tabHeight: CGFloat = 104
+    // The edge rail: one icon per surface, stacked. Still called the tab in
+    // the window code because it is the same thing, the piece on the bezel.
+    static let railIcon: CGFloat = 30
+    static let railGap: CGFloat = 4
+    static let railPadding: CGFloat = 7
+    static let railSlots = 4
+    static let tabWidth: CGFloat = 38
+    static let tabHeight: CGFloat =
+        railPadding * 2 + railIcon * CGFloat(railSlots) + railGap * CGFloat(railSlots - 1)
+
+    /// Which rail slot a point falls in, counting from the TOP, or nil if it
+    /// misses. 🔴 AppKit's origin is bottom left, so slot 0 sits at the HIGHEST
+    /// y: getting that backwards silently inverts the entire rail.
+    static func railSlot(at point: NSPoint, in bounds: NSRect,
+                         slots: Int = railSlots) -> Int? {
+        guard bounds.contains(point) else { return nil }
+        let usable = bounds.height - railPadding * 2
+        guard usable > 0 else { return nil }
+        let fromTop = bounds.maxY - railPadding - point.y
+        guard fromTop >= 0, fromTop < usable else { return nil }
+        return min(slots - 1, max(0, Int(fromTop / (usable / CGFloat(slots)))))
+    }
     static let panelCorner: CGFloat = 16
     static let tabCorner: CGFloat = 9
     /// Apple's standard "smooth out" curve. Same feel as system slide-outs.
     static let curve = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
     static let duration: TimeInterval = 0.3
+}
+
+/// The surface currently on screen, shared by the rail and the panel.
+///
+/// Held in an object rather than SwiftUI state because BOTH sides drive it: the
+/// rail sets it from AppKit, and the panel reads it. A `@State` inside the panel
+/// could only be written from inside the panel.
+final class SurfaceModel: ObservableObject {
+    @Published var current: Surface = .notes
 }
 
 // MARK: - Window
@@ -47,14 +87,19 @@ final class ContainerView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        // Hit the active piece directly. Going through super would let the
-        // faded-out tab, which still sits on top, swallow clicks in the open panel.
-        if isExpanded {
-            guard let card = cardHost, card.frame.contains(local) else { return nil }
+        // Hit the pieces directly, never through super: super would let a piece
+        // that merely sits on top swallow clicks meant for the one underneath.
+        //
+        // 🔑 The rail stays live while the panel is open, because it is now how
+        // you switch surfaces rather than just a handle to pull. The panel is
+        // laid out to stop short of it, so the two never overlap.
+        if let tab = tabHost, tab.frame.contains(local) {
+            return tab.hitTest(local)
+        }
+        if isExpanded, let card = cardHost, card.frame.contains(local) {
             return card.hitTest(local)
         }
-        guard let tab = tabHost, tab.frame.contains(local) else { return nil }
-        return tab.hitTest(local)
+        return nil
     }
 }
 
@@ -98,29 +143,84 @@ final class ResizeHandle: NSView {
 
 /// The pull tab. Click toggles the drawer, vertical drag repositions it.
 final class TabView: NSView {
-    var onClick: (() -> Void)?
+    /// Which surface the rail should open. The panel decides what to do when
+    /// the slot tapped is already the one on screen.
+    var onSelect: ((Surface) -> Void)?
     var onDrag: ((NSPoint) -> Void)?
+
+    /// Lit while the panel is open, so the rail shows where you are.
+    var active: Surface? {
+        didSet { if active != oldValue { restyle() } }
+    }
 
     private var dragOrigin: NSPoint = .zero
     private var dragDistance: CGFloat = 0
-    private let chevron = NSImageView()
-
+    private var icons: [NSImageView] = []
+    private var hovered: Int?
+    private var tracking: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        chevron.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Open notes")?
-            .withSymbolConfiguration(config)
-        chevron.contentTintColor = .secondaryLabelColor
-        chevron.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(chevron)
-        NSLayoutConstraint.activate([
-            chevron.centerXAnchor.constraint(equalTo: centerXAnchor),
-            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-        registerForText()
         wantsLayer = true
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        for surface in Surface.allCases {
+            let view = NSImageView()
+            view.image = NSImage(systemSymbolName: surface.symbol,
+                                 accessibilityDescription: surface.rawValue)?
+                .withSymbolConfiguration(config)
+            view.contentTintColor = .secondaryLabelColor
+            view.wantsLayer = true
+            view.layer?.cornerRadius = 7
+            view.layer?.cornerCurve = .continuous
+            addSubview(view)
+            icons.append(view)
+        }
+        registerForText()
     }
+
+    /// Laid out by hand rather than in a stack view, because the same
+    /// arithmetic has to answer `Layout.railSlot`. Two independent layouts
+    /// would drift, and that drift looks like clicks hitting the wrong icon.
+    override func layout() {
+        super.layout()
+        for (index, view) in icons.enumerated() {
+            var frame = Layout.railSlotFrame(index)
+            frame.origin.x = (bounds.width - Layout.railIcon) / 2
+            view.frame = frame
+        }
+    }
+
+    private func restyle() {
+        for (index, view) in icons.enumerated() {
+            let isActive = Surface.allCases[index] == active
+            view.contentTintColor = isActive ? .labelColor : .secondaryLabelColor
+            view.layer?.backgroundColor = isActive
+                ? NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                : (hovered == index
+                    ? NSColor.labelColor.withAlphaComponent(0.06).cgColor
+                    : NSColor.clear.cgColor)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = tracking { removeTrackingArea(existing) }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let slot = Layout.railSlot(at: convert(event.locationInWindow, from: nil), in: bounds)
+        if slot != hovered { hovered = slot; restyle() }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if hovered != nil { hovered = nil; restyle() }
+    }
+
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -198,7 +298,10 @@ final class TabView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if dragDistance <= 3 { onClick?() }
+        guard dragDistance <= 3 else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let slot = Layout.railSlot(at: point, in: bounds) else { return }
+        onSelect?(Surface.allCases[slot])
     }
 }
 
@@ -207,6 +310,7 @@ final class TabView: NSView {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: DrawerPanel!
     private var container: ContainerView!
+    private let surfaces = SurfaceModel()
     private var tabWrap: NSView!
     private var cardWrap: NSView!
     private weak var resizeHandle: ResizeHandle?
@@ -235,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ScreenChoice.shared.onSelect = { [weak self] id in self?.moveToDisplay(id) }
 
         if UserDefaults.standard.object(forKey: "showMenuBarItem") as? Bool ?? true {
-            menuBar = MenuBarItem { [weak self] in self?.toggle() }
+            menuBar = MenuBarItem { [weak self] in self?.toggleDrawer() }
             menuBar?.show()
         }
 
@@ -277,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func setMenuBarVisible(_ visible: Bool) {
         UserDefaults.standard.set(visible, forKey: "showMenuBarItem")
         if visible {
-            if menuBar == nil { menuBar = MenuBarItem { [weak self] in self?.toggle() } }
+            if menuBar == nil { menuBar = MenuBarItem { [weak self] in self?.toggleDrawer() } }
             menuBar?.show()
         } else {
             menuBar?.hide()
@@ -331,6 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cardBlur.autoresizingMask = [.width, .height]
 
         let hosting = NSHostingView(rootView: PanelView(store: store, inbox: inbox,
+                                                       surfaces: surfaces,
                                                        onClose: { [weak self] in self?.collapse() }))
         hosting.autoresizingMask = [.width, .height]
         cardBlur.addSubview(hosting)
@@ -355,7 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let tab = TabView(frame: .zero)
         tab.autoresizingMask = [.width, .height]
-        tab.onClick = { [weak self] in self?.toggle() }
+        tab.onSelect = { [weak self] surface in self?.select(surface) }
         tab.onDrag = { [weak self] pointer in self?.dragTab(to: pointer) }
         tab.onDropText = { [weak self] text in self?.captureDroppedText(text) }
         tabView = tab
@@ -443,8 +548,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Card centers on the tab, then gets clamped inside the screen.
         let wantedY = tabFrame.midY - cardHeight / 2
         let cardY = min(max(wantedY, 8), max(height - cardHeight - 8, 8))
+        // The card stops short of the rail rather than sliding beneath it, so
+        // the rail is never covered and never has to fade out to be clickable.
         let cardFrame = NSRect(x: isExpanded ? 0 : panelWidth, y: cardY,
-                               width: panelWidth, height: cardHeight)
+                               width: max(panelWidth - Layout.tabWidth, 1),
+                               height: cardHeight)
 
         resizeHandle?.frame = NSRect(x: 0, y: 0, width: 8, height: cardHeight)
         // Top left of the tab, overhanging both edges by a few points.
@@ -509,11 +617,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
     }
 
-    private func toggle() { isExpanded ? collapse() : expand() }
+    /// The menu bar item and anything else that just wants the drawer shown.
+    private func toggleDrawer() { isExpanded ? collapse() : expand() }
+
+    /// A rail click. Tapping the surface already on screen closes the drawer,
+    /// so the same icon is both the way in and the way out.
+    private func select(_ surface: Surface) {
+        if isExpanded && surfaces.current == surface {
+            collapse()
+            return
+        }
+        surfaces.current = surface
+        tabView?.active = surface
+        if !isExpanded { expand() }
+    }
 
     private func expand() {
         guard !isExpanded else { return }
         store.reload()
+        tabView?.active = surfaces.current
         isExpanded = true
         container.isExpanded = true
         layoutPieces(animated: false)   // park the card off-screen at the right height
@@ -527,7 +649,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             context.timingFunction = Layout.curve
             cardWrap.animator().alphaValue = 1
             cardWrap.animator().setFrameOrigin(NSPoint(x: 0, y: cardWrap.frame.origin.y))
-            tabWrap.animator().alphaValue = 0
         }
     }
 
@@ -535,6 +656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isExpanded else { return }
         isExpanded = false
         container.isExpanded = false
+        tabView?.active = nil
         store.flushSave()
         panel.makeFirstResponder(nil)
 
@@ -543,7 +665,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             context.timingFunction = Layout.curve
             cardWrap.animator().alphaValue = 0
             cardWrap.animator().setFrameOrigin(NSPoint(x: panelWidth, y: cardWrap.frame.origin.y))
-            tabWrap.animator().alphaValue = 1
         }, completionHandler: {
             NSApp.deactivate()
         })

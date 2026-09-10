@@ -1,26 +1,48 @@
 import SwiftUI
 
 // The contents of the slide-out drawer. The window chrome lives in AppDelegate.
-enum Surface: String, CaseIterable { case notes = "Notes", inbox = "Inbox" }
+/// The four surfaces the edge rail switches between, in rail order top to
+/// bottom. Deliberately no calendar: aside is a place for what people said to
+/// you and what you wrote down, and a calendar is neither.
+enum Surface: String, CaseIterable {
+    case ask = "Ask"
+    case unread = "Unread"
+    case notes = "Notes"
+    case inbox = "Inbox"
+
+    var symbol: String {
+        switch self {
+        // Deliberately not "sparkles": it is the default AI tell and he has
+        // used it on enough surfaces already.
+        case .ask: return "aqi.medium"
+        case .unread: return "bell"
+        case .notes: return "note.text"
+        case .inbox: return "tray"
+        }
+    }
+}
 
 struct PanelView: View {
     @ObservedObject var store: NoteStore
     @ObservedObject var inbox: InboxStore
     var onClose: () -> Void
 
+    @ObservedObject var surfaces: SurfaceModel
     @ObservedObject private var screens = ScreenChoice.shared
     @State private var showingList: Bool
     @State private var query = ""
 
-    @State private var surface: Surface = .notes
+    /// Read from the shared model so the rail and the panel can never disagree
+    /// about which surface is on screen.
+    private var surface: Surface { surfaces.current }
 
-    init(store: NoteStore, inbox: InboxStore, onClose: @escaping () -> Void,
-         startWithList: Bool = false, startOn: Surface = .notes) {
+    init(store: NoteStore, inbox: InboxStore, surfaces: SurfaceModel,
+         onClose: @escaping () -> Void, startWithList: Bool = false) {
         self.store = store
         self.inbox = inbox
+        self.surfaces = surfaces
         self.onClose = onClose
         _showingList = State(initialValue: startWithList)
-        _surface = State(initialValue: startOn)
     }
 
     var body: some View {
@@ -29,7 +51,8 @@ struct PanelView: View {
             Divider().opacity(0.5)
 
             ZStack {
-                if surface == .notes {
+                switch surface {
+                case .notes:
                     ZStack {
                         VStack(spacing: 0) {
                             dateLine
@@ -42,8 +65,12 @@ struct PanelView: View {
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
-                } else {
+                case .inbox:
                     InboxView(inbox: inbox, onSaveAsNote: saveAsNote)
+                case .unread:
+                    UnreadView(inbox: inbox, onSaveAsNote: saveAsNote)
+                case .ask:
+                    AskView(store: store, inbox: inbox)
                 }
             }
 
@@ -61,23 +88,23 @@ struct PanelView: View {
         HStack(spacing: 6) {
             IconButton(symbol: "chevron.right", help: "Close", action: onClose)
 
-            Picker("", selection: $surface) {
-                ForEach(Surface.allCases, id: \.self) { option in
-                    if option == .inbox && inbox.unreadCount > 0 {
-                        Text("\(option.rawValue)  \(inbox.unreadCount)").tag(option)
-                    } else {
-                        Text(option.rawValue).tag(option)
-                    }
-                }
+            Text(surface.rawValue)
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.leading, 2)
+
+            if surface == .unread && inbox.unreadCount > 0 {
+                Text("\(inbox.unreadCount)")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.1)))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 168)
-            .padding(.leading, 2)
 
             Spacer(minLength: 4)
 
-            if surface == .notes {
+            switch surface {
+            case .notes:
                 IconButton(symbol: "square.and.pencil", help: "New note") {
                     store.newNote()
                     withAnimation(.easeOut(duration: 0.16)) { showingList = false }
@@ -87,11 +114,15 @@ struct PanelView: View {
                            help: showingList ? "Back to note" : "All notes",
                            active: showingList) {
                     withAnimation(.easeOut(duration: 0.18)) { showingList.toggle() }
-                    if !showingList { query = "" }
-                    if !showingList { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
+                    if !showingList {
+                        query = ""
+                        NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
+                    }
                 }
-            } else {
+            case .inbox, .unread:
                 IconButton(symbol: "envelope.open", help: "Mark all read") { inbox.markAllRead() }
+            case .ask:
+                EmptyView()
             }
         }
         .padding(.horizontal, 10)
@@ -139,7 +170,7 @@ struct PanelView: View {
         store.flushSave()
         inbox.markRead(message.id)
         showingList = false
-        withAnimation(.easeOut(duration: 0.18)) { surface = .notes }
+        withAnimation(.easeOut(duration: 0.18)) { surfaces.current = .notes }
         NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
     }
 
@@ -257,7 +288,7 @@ struct PanelView: View {
             query = ""
             withAnimation(.easeOut(duration: 0.18)) {
                 showingList = false
-                surface = .inbox
+                surfaces.current = .inbox
             }
         }
     }
@@ -443,7 +474,7 @@ private struct NoteRow: View {
     }
 }
 
-private struct IconButton: View {
+struct IconButton: View {
     let symbol: String
     let help: String
     var active: Bool = false

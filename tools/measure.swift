@@ -33,6 +33,37 @@ enum Measure {
         var body: String; var date: Double
     }
 
+    /// Exercises the REAL Ask path end to end: real search over real notes and
+    /// messages, real on-device model. Rendering the surface only proves it
+    /// draws; this proves it answers.
+    static func ask(_ question: String) async -> Int {
+        guard Intelligence.isReady, #available(macOS 26, *) else {
+            print("model unavailable: \(Intelligence.status)")
+            return 1
+        }
+        let notes = NoteStore(directory: AppDelegate.notesDirectory()).notes
+        let inbox = InboxStore()
+        inbox.ingest()
+        print("terms: \(AskView.terms(from: question))")
+        let hits = AskView.find(question: question, notes: notes, messages: inbox.visible)
+        let used = Array(hits.prefix(AskView.maxHits))
+        print("question: \(question)")
+        print("hits: \(hits.count), using \(used.count)")
+        for hit in used { print("  - \(hit.source): \(hit.title)") }
+        guard !used.isEmpty else { print("\nno matches, so nothing is asked of the model"); return 0 }
+        do {
+            let started = Date()
+            let answer = try await AskReader().answer(
+                question: question, context: AskView.context(from: used))
+            print("\nanswer (\(String(format: "%.2fs", Date().timeIntervalSince(started)))):")
+            print(answer)
+        } catch {
+            print("\nfailed: \(error)")
+            return 1
+        }
+        return 0
+    }
+
     static func run(limit: Int?) async -> Int {
         guard Intelligence.isReady else {
             print("model unavailable: \(Intelligence.status)")

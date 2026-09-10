@@ -12,26 +12,124 @@ enum Tests {
 
     static func run() -> Int {
         print("hit testing")
+        // The rail is 38 wide and the card now STOPS SHORT of it rather than
+        // sliding underneath, so the two never overlap and the rail stays
+        // clickable while the panel is open.
         let container = ContainerView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
-        let tab = NSView(frame: NSRect(x: 374, y: 400, width: 26, height: 104))
-        let card = NSView(frame: NSRect(x: 0, y: 220, width: 400, height: 660))
+        let railX = 400 - Layout.tabWidth
+        let tab = NSView(frame: NSRect(x: railX, y: 400, width: Layout.tabWidth,
+                                       height: Layout.tabHeight))
+        let card = NSView(frame: NSRect(x: 0, y: 220, width: railX, height: 660))
         container.addSubview(card)
-        container.addSubview(tab)          // tab sits above the card, as in the app
+        container.addSubview(tab)          // rail sits above the card, as in the app
         container.tabHost = tab
         container.cardHost = card
 
         container.isExpanded = false
-        check("closed: the tab takes clicks", container.hitTest(NSPoint(x: 387, y: 450)) != nil)
+        check("closed: the rail takes clicks",
+              container.hitTest(NSPoint(x: railX + 8, y: 450)) != nil)
         check("closed: mid-screen passes through", container.hitTest(NSPoint(x: 100, y: 450)) == nil)
-        check("closed: edge above the tab passes through", container.hitTest(NSPoint(x: 390, y: 100)) == nil)
-        check("closed: edge below the tab passes through", container.hitTest(NSPoint(x: 390, y: 800)) == nil)
+        check("closed: edge above the rail passes through", container.hitTest(NSPoint(x: 390, y: 100)) == nil)
+        check("closed: edge below the rail passes through", container.hitTest(NSPoint(x: 390, y: 800)) == nil)
 
         container.isExpanded = true
-        check("open: the panel takes clicks", container.hitTest(NSPoint(x: 100, y: 450)) != nil)
-        check("open: the tab strip hits the panel, not the hidden tab",
-              container.hitTest(NSPoint(x: 387, y: 450)) === card)
+        check("open: the panel takes clicks", container.hitTest(NSPoint(x: 100, y: 450)) === card)
+        // 🔑 Changed deliberately: the rail is now how you switch surfaces, so
+        // it must stay live while the panel is open. It used to fade out and
+        // hand its strip to the card.
+        check("open: the rail still takes its own clicks",
+              container.hitTest(NSPoint(x: railX + 8, y: 450)) === tab)
         check("open: above the panel passes through", container.hitTest(NSPoint(x: 200, y: 890)) == nil)
         check("open: below the panel passes through", container.hitTest(NSPoint(x: 200, y: 50)) == nil)
+
+        print("rail slots")
+        let rail = NSRect(x: 0, y: 0, width: Layout.tabWidth, height: Layout.tabHeight)
+        // 🔴 AppKit's origin is bottom left, so slot 0 is at the HIGHEST y.
+        // Getting this backwards inverts the whole rail and every click lands
+        // on the wrong surface, which is the kind of bug that looks like magic.
+        let topPoint = NSPoint(x: 19, y: rail.maxY - Layout.railPadding - 2)
+        let bottomPoint = NSPoint(x: 19, y: Layout.railPadding + 2)
+        check("the top slot is the first surface", Layout.railSlot(at: topPoint, in: rail) == 0)
+        check("the bottom slot is the last surface",
+              Layout.railSlot(at: bottomPoint, in: rail) == Layout.railSlots - 1)
+        check("the first slot is Ask", Surface.allCases[0] == .ask)
+        check("the last slot is Inbox", Surface.allCases[Layout.railSlots - 1] == .inbox)
+        check("there are exactly four slots", Surface.allCases.count == Layout.railSlots)
+        check("no calendar", !Surface.allCases.contains { $0.rawValue.lowercased().contains("calendar") })
+        check("a point outside the rail hits nothing",
+              Layout.railSlot(at: NSPoint(x: 19, y: rail.maxY + 40), in: rail) == nil)
+        // Every slot must be reachable, or an icon is decorative.
+        var reached = Set<Int>()
+        for step in stride(from: Layout.railPadding + 1,
+                           through: Layout.tabHeight - Layout.railPadding - 1, by: 1) {
+            if let slot = Layout.railSlot(at: NSPoint(x: 19, y: step), in: rail) { reached.insert(slot) }
+        }
+        check("every slot is reachable", reached.count == Layout.railSlots)
+        check("no slot is out of range", reached.allSatisfy { $0 >= 0 && $0 < Layout.railSlots })
+
+        print("unread badge")
+        let badge = Layout.badgeFrame()
+        check("it overhangs the rail's outboard edge", badge.minX < 0)
+        // 🔴 It marks the BELL, not the app. The first version placed it from
+        // the bell's TOP edge as if that were its bottom, which put the dot on
+        // the Ask icon one slot above: caught by rendering the rail, not by
+        // reading the arithmetic.
+        let bell = Layout.railSlotFrame(1)
+        check("it sits on the bell", badge.midY > bell.minY && badge.midY < bell.maxY)
+        check("it is not on the slot above", badge.midY < Layout.railSlotFrame(0).minY)
+        check("the slot frames march down the rail",
+              Layout.railSlotFrame(0).minY > Layout.railSlotFrame(3).minY)
+        // The frames and the click reader must agree, or icons and hits drift.
+        check("each slot frame reads back as its own slot",
+              (0..<Layout.railSlots).allSatisfy { index in
+                  let frame = Layout.railSlotFrame(index)
+                  let rail = NSRect(x: 0, y: 0, width: Layout.tabWidth, height: Layout.tabHeight)
+                  return Layout.railSlot(at: NSPoint(x: 19, y: frame.midY), in: rail) == index
+              })
+        check("it stays small", badge.width <= 14 && badge.height <= 14)
+
+        print("unread, one at a time")
+        // Clearing in order always ends on the LAST card, which is exactly the
+        // case that runs off the end of the list.
+        check("clearing the last card lands on the new last",
+              UnreadView.landing(after: 3, remaining: 3) == 2)
+        check("clearing a middle card stays put, so the next one is shown",
+              UnreadView.landing(after: 1, remaining: 5) == 1)
+        check("clearing the only card lands on nothing",
+              UnreadView.landing(after: 0, remaining: 0) == 0)
+        check("an index past the end is pulled back",
+              UnreadView.landing(after: 99, remaining: 2) == 1)
+
+        print("what Ask shows the model")
+        let manyHits = (1...20).map { index in
+            SearchHit(id: "h\(index)", kind: .message("m\(index)"), title: "Hit \(index)",
+                      snippet: String(repeating: "word ", count: 200), source: "Note",
+                      date: Date(), weight: 1)
+        }
+        let context = AskView.context(from: manyHits)
+        // The window is 4,096 tokens. Handing it everything fails the whole
+        // answer rather than degrading it, so both limits are enforced.
+        check("only a handful of passages are sent",
+              context.components(separatedBy: "[").count - 1 == AskView.maxHits)
+        check("each passage is clipped", context.count < AskView.maxHits * (AskView.hitLimit + 120))
+        check("nothing found sends nothing", AskView.context(from: []).isEmpty)
+
+        // 🔴 Without keyword extraction Ask finds NOTHING: UnifiedSearch matches
+        // the query as one substring, so a whole question is looked up verbatim.
+        // Measured 0 hits on his real data before this existed.
+        let asked = AskView.terms(from: "What did anyone say about the tracker?")
+        check("a question is reduced to the words worth searching", asked == ["tracker"])
+        check("punctuation is stripped",
+              !AskView.terms(from: "where's the invoice?").contains { $0.contains("?") })
+        check("two useful words both survive",
+              AskView.terms(from: "when is the Miami retreat") == ["miami", "retreat"])
+        check("a repeated word is searched once",
+              AskView.terms(from: "invoice invoice invoice") == ["invoice"])
+        check("two letter words are skipped", AskView.terms(from: "is it ok").isEmpty)
+        // A question of nothing but common words must still search something,
+        // rather than silently answering "nothing found".
+        check("a question with no useful words still searches",
+              !AskView.find(question: "what is it", notes: [], messages: []).isEmpty == false)
 
         print("display choice")
         let builtIn = ScreenRef(id: 1, name: "Built-in Retina Display")
@@ -47,13 +145,6 @@ enum Tests {
               ScreenResolver.choose(savedID: nil, savedName: nil, from: both) == builtIn)
         check("no displays yields nothing",
               ScreenResolver.choose(savedID: 2, savedName: nil, from: []) == nil)
-
-        print("unread badge")
-        let badge = Layout.badgeFrame()
-        check("it overhangs the tab's outboard edge", badge.minX < 0)
-        check("it overhangs the top", badge.maxY > Layout.tabHeight)
-        check("it is at the top, not the middle", badge.midY > Layout.tabHeight * 0.75)
-        check("it stays small", badge.width <= 14 && badge.height <= 14)
 
         print("panel width")
         check("a saved width is kept", Layout.clampWidth(520) == 520)
