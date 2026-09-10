@@ -18,7 +18,7 @@ enum Slack {
     /// shipped binary and a leaked secret mints tokens against his app.
     /// A var so the suite can check the URL it builds without shipping a real
     /// id, the same way `service` is overridable for the keychain.
-    static var clientID = "11321591466704.12024068498710"
+    static var clientID = "11321591466704.12035109621394"
 
     /// Where Slack sends people back. 🔴 Slack accepts HTTPS redirect URLs
     /// ONLY, so aside cannot catch this on 127.0.0.1 the way Google's
@@ -33,7 +33,7 @@ enum Slack {
     /// Built from the app id rather than hardcoded, so it still points
     /// somewhere sensible if the app is ever recreated. The team segment is
     /// optional to Slack: it redirects to the right workspace on its own.
-    static let appID = "A0C0Q20ENLW"
+    static let appID = "A0C1137J9BL"
     static var tokenPageURL: URL? {
         URL(string: "https://api.slack.com/apps/\(appID)/oauth")
     }
