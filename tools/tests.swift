@@ -159,6 +159,58 @@ enum Tests {
         check("a colon inside a real answer survives",
               AskView.clean("the note says: call at 4") == "the note says: call at 4")
 
+        print("note previews")
+        // 🔑 The EDITOR keeps markdown visible on purpose. A one line preview is
+        // the opposite case: no cursor, nothing to shift, and the syntax is noise.
+        check("a heading loses its hashes", Note.plain("## Before the call") == "Before the call")
+        check("bold loses its stars", Note.plain("Send **the deck**") == "Send the deck")
+        check("italic loses its stars", Note.plain("the *one pager*") == "the one pager")
+        check("code loses its backticks", Note.plain("run `./ship.sh`") == "run ./ship.sh")
+        check("a bullet loses its dash", Note.plain("- reply to the client") == "reply to the client")
+        check("a checkbox loses its box", Note.plain("- [ ] confirm the room") == "confirm the room")
+        check("a ticked checkbox too", Note.plain("- [x] send the invite") == "send the invite")
+        check("a quote loses its arrow", Note.plain("> they read it as a total") == "they read it as a total")
+        check("a rule previews as nothing", Note.plain("---").isEmpty)
+        check("a link keeps its words", Note.plain("see [the doc](http://x.com)") == "see the doc")
+        check("plain text is untouched", Note.plain("just a line") == "just a line")
+        // Bold inside a heading is two rules on one line, and the order matters.
+        check("a heading with bold strips both", Note.plain("### **After**") == "After")
+        check("a bare star is not italics", Note.plain("2 * 3 = 6") == "2 * 3 = 6")
+
+        print("inbox order and filtering")
+        let t0 = Date()
+        let mixed = [
+            InboxMessage(id: "old-unread", app: "com.hnc.discord", title: "Ana", subtitle: "#build",
+                         body: "old", date: t0.addingTimeInterval(-9000)),
+            InboxMessage(id: "new-read", app: "com.apple.mobilesms", title: "Jo", subtitle: "",
+                         body: "new", date: t0, read: true),
+            InboxMessage(id: "mid-unread", app: "com.hnc.discord", title: "Theo", subtitle: "#build",
+                         body: "mid", date: t0.addingTimeInterval(-60)),
+        ]
+        // 🔴 This used to only FILTER and never sort, so the order was whatever
+        // ingest produced. It looked fine because notifications usually arrive
+        // newest last, but a message backfilled from an API lands by when it was
+        // FETCHED, not when it was sent.
+        let byRecent = InboxStore.inboxList(mixed, muted: [], sort: .recent, now: t0)
+        check("most recent puts the newest first", byRecent.first?.id == "new-read")
+        check("most recent puts the oldest last", byRecent.last?.id == "old-unread")
+        let byUnread = InboxStore.inboxList(mixed, muted: [], sort: .unread, now: t0)
+        check("unread first puts a read message last", byUnread.last?.id == "new-read")
+        check("unread first is still newest-first within the unread",
+              byUnread.first?.id == "mid-unread")
+        check("both orders keep every message",
+              byRecent.count == mixed.count && byUnread.count == mixed.count)
+
+        let tallies = InboxStore.tallies(mixed)
+        check("only apps actually present are offered", tallies.count == 2)
+        check("the busiest app comes first", tallies.first?.name == "Discord")
+        check("unread is counted per app", tallies.first?.unread == 2)
+        check("a read message is not counted",
+              tallies.first(where: { $0.name == "Messages" })?.unread == 0)
+        check("a muted app is offered no filter",
+              InboxStore.tallies(InboxStore.inboxList(mixed, muted: ["com.hnc.discord"],
+                                                      now: t0)).count == 1)
+
         print("what Ask knows without searching")
         let asOf = Date()
         // 🔴 "Who last messaged me on iMessage" is a DATABASE question, not a

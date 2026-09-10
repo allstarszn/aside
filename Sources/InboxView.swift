@@ -10,6 +10,12 @@ struct InboxView: View {
     @State private var openThread: InboxMessage?
     /// Snoozed messages are out of the way by default. This is the peek.
     @State private var showingSnoozed = false
+    /// Which platform is being looked at, or nil for all of them.
+    ///
+    /// 🔑 Deliberately view state, not stored: a filter that survives a relaunch
+    /// hides messages from someone who has forgotten they set it, and an inbox
+    /// that looks empty reads as broken rather than as filtered.
+    @State private var filter: String?
 
     var body: some View {
         Group {
@@ -26,11 +32,80 @@ struct InboxView: View {
             } else if inbox.visible.isEmpty && inbox.snoozed.isEmpty {
                 emptyState
             } else {
-                list
+                VStack(spacing: 0) {
+                    if inbox.appTallies.count > 1 {
+                        filterStrip
+                        Divider().opacity(0.4)
+                    }
+                    list
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    /// One tap per platform. Tapping the lit one clears it, so the way out is
+    /// the same control as the way in.
+    private var filterStrip: some View {
+        HStack(spacing: 6) {
+            ForEach(inbox.appTallies) { tally in
+                Button {
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        filter = (filter == tally.id) ? nil : tally.id
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        PlatformMark(bundleID: tally.id, size: 14)
+                        if tally.unread > 0 {
+                            Text("\(tally.unread)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(filter == tally.id ? .primary : .secondary)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.primary.opacity(filter == tally.id ? 0.13 : 0)))
+                }
+                .buttonStyle(.plain)
+                .help(filter == tally.id ? "Show everything" : "Only \(tally.name)")
+            }
+            Spacer(minLength: 4)
+            if let filter, let tally = inbox.appTallies.first(where: { $0.id == filter }) {
+                // 🔑 A filter that hides things has to say so, or a short list
+                // looks like a bug rather than a choice.
+                Text(tally.name)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            Menu {
+                ForEach(InboxStore.Sort.allCases) { option in
+                    Button {
+                        inbox.sort = option
+                    } label: {
+                        if inbox.sort == option {
+                            Label(option.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(option.rawValue)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22)
+            .help("Sort: \(inbox.sort.rawValue)")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+    }
+
+    private var shown: [InboxMessage] { inbox.visible(app: filter) }
 
     private var list: some View {
         ScrollView {
@@ -52,7 +127,7 @@ struct InboxView: View {
                     }
                 }
 
-                ForEach(Array(inbox.visible.enumerated()), id: \.element.id) { index, message in
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, message in
                     VStack(spacing: 0) {
                         if index > 0 { Divider().opacity(0.4).padding(.leading, 20) }
                         MessageRow(message: message, snoozedLabel: nil)
@@ -176,7 +251,7 @@ private struct MessageRow: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 HStack(spacing: 5) {
-                    AppBadge(bundleID: message.app, size: 11)
+                    PlatformMark(bundleID: message.app, size: 12)
                     Text(InboxStore.appName(message.app))
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)

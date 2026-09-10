@@ -27,11 +27,40 @@ struct Note: Identifiable, Equatable {
             return "No additional text"
         }
         let rest = lines.dropFirst(titleIndex + 1)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { Note.plain($0.trimmingCharacters(in: .whitespaces)) }
             .filter { !$0.isEmpty }
             .joined(separator: "  ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return rest.isEmpty ? "No additional text" : rest
+    }
+
+    /// Markdown syntax stripped for a ONE LINE preview.
+    ///
+    /// 🔑 The editor deliberately keeps `##` and `**` visible and dimmed, since
+    /// hiding them would shift every character as the cursor arrived and these
+    /// are .md files other tools read. A list row is the opposite case: there is
+    /// no cursor, nothing to shift, and the syntax is pure noise. The rule is
+    /// about the EDITOR, not about the file.
+    static func plain(_ line: String) -> String {
+        var text = line
+        // A rule or an empty heading has no words worth previewing.
+        if text.range(of: "^\\s*([-*_])\\1{2,}\\s*$", options: .regularExpression) != nil { return "" }
+        let strips: [(String, String)] = [
+            ("^#{1,6}\\s*", ""),           // heading marks
+            ("^\\s*>\\s?", ""),           // quote marks
+            ("^\\s*[-*+]\\s+\\[[ xX]\\]\\s*", ""),  // checkbox before the bullet
+            ("^\\s*[-*+]\\s+", ""),       // bullets
+            ("^\\s*\\d+\\.\\s+", ""),   // numbered bullets
+            ("\\*\\*([^*]+)\\*\\*", "$1"),  // bold
+            ("(?<!\\*)\\*([^*]+)\\*(?!\\*)", "$1"),  // italic
+            ("`([^`]+)`", "$1"),         // inline code
+            ("\\[([^\\]]+)\\]\\([^)]*\\)", "$1"),  // links keep their words
+        ]
+        for (pattern, replacement) in strips {
+            text = text.replacingOccurrences(of: pattern, with: replacement,
+                                             options: .regularExpression)
+        }
+        return text.trimmingCharacters(in: .whitespaces)
     }
 
     static func == (a: Note, b: Note) -> Bool { a.url == b.url }

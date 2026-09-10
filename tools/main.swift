@@ -74,6 +74,23 @@ let pretendThread: [InboxMessage] = [
                  body: "perfect, thank you", date: Date().addingTimeInterval(-120)),
 ]
 
+/* The inbox preview spans all four platforms, because the pieces most worth
+   reviewing - the filter strip, the platform marks, the ordering - only appear
+   when more than one app is present. A single-app fixture hid the filter strip
+   entirely the first time it was rendered. All invented people. */
+let pretendInbox: [InboxMessage] = pretendThread + [
+    InboxMessage(id: "p5", app: "com.apple.mobilesms", title: "Jo Bailey", subtitle: "",
+                 body: "are we still on for tomorrow?", date: Date().addingTimeInterval(-300)),
+    InboxMessage(id: "p6", app: "com.apple.mobilesms", title: "Sam Okafor", subtitle: "",
+                 body: "sent the file over", date: Date().addingTimeInterval(-7200), read: true),
+    InboxMessage(id: "p7", app: "com.tinyspeck.slackmacgap", title: "Priya Raman",
+                 subtitle: "#launch", body: "can you look at the copy before 4?",
+                 date: Date().addingTimeInterval(-1800)),
+    InboxMessage(id: "p8", app: "net.whatsapp.whatsapp", title: "Alex Doe",
+                 subtitle: "Pit Crew", body: "landed, heading over now",
+                 date: Date().addingTimeInterval(-600)),
+]
+
 let inboxStore: InboxStore
 // The preview opens on whichever surface was asked for. A model rather than a
 // parameter, because the rail and the panel share one in the real app.
@@ -95,7 +112,7 @@ if mode == "live" {
     inboxStore = InboxStore()
     inboxStore.ingest()
 } else {
-    inboxStore = InboxStore(preview: pretendThread)
+    inboxStore = InboxStore(preview: pretendInbox)
 }
 let size = NSSize(width: Layout.defaultPanelWidth, height: 520)
 

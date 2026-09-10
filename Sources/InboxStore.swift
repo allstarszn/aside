@@ -103,15 +103,95 @@ final class InboxStore: ObservableObject {
         set { UserDefaults.standard.set(Array(newValue), forKey: "mutedApps"); objectWillChange.send() }
     }
 
-    var visible: [InboxMessage] { Self.inboxList(messages, muted: mutedApps) }
+    /// How the list is ordered. Kept on the store so it survives leaving the
+    /// Inbox surface and coming back, unlike the platform filter, which must
+    /// not: an order is a preference, a filter hides things.
+    @Published var sort: Sort = {
+        Sort(rawValue: UserDefaults.standard.string(forKey: "inboxSort") ?? "") ?? .recent
+    }() {
+        didSet { UserDefaults.standard.set(sort.rawValue, forKey: "inboxSort") }
+    }
+
+    var visible: [InboxMessage] { Self.inboxList(messages, muted: mutedApps, sort: sort) }
 
     /// Put away, soonest to return first.
     var snoozed: [InboxMessage] { Self.snoozedList(messages, muted: mutedApps) }
 
-    /// What belongs in the inbox right now: nothing muted, nothing snoozed.
+    /// One entry per app that actually has messages, for the filter strip.
+    ///
+    /// 🔑 Only apps PRESENT in the inbox appear. A filter offering an app you
+    /// have never received anything from is a button that does nothing, and a
+    /// strip of five dead icons reads as broken rather than as empty.
+    struct AppTally: Identifiable, Equatable {
+        var id: String
+        var name: String
+        var total: Int
+        var unread: Int
+    }
+
+    var appTallies: [AppTally] { Self.tallies(visible) }
+
+    static func tallies(_ messages: [InboxMessage]) -> [AppTally] {
+        var order: [String] = []
+        var counts: [String: (total: Int, unread: Int)] = [:]
+        for message in messages {
+            if counts[message.app] == nil { order.append(message.app) }
+            var entry = counts[message.app] ?? (0, 0)
+            entry.total += 1
+            if !message.read { entry.unread += 1 }
+            counts[message.app] = entry
+        }
+        // Busiest first: the app you hear from most should be the easiest to hit.
+        return order
+            .map { AppTally(id: $0, name: appName($0),
+                            total: counts[$0]?.total ?? 0,
+                            unread: counts[$0]?.unread ?? 0) }
+            .sorted { $0.total == $1.total ? $0.name < $1.name : $0.total > $1.total }
+    }
+
+    /// The list with a platform filter applied. Kept separate from `visible`
+    /// on purpose: `visible` feeds Ask and unified search, and a filter chosen
+    /// for browsing must never quietly narrow what a question can see.
+    func visible(app: String?) -> [InboxMessage] {
+        guard let app else { return visible }
+        return visible.filter { $0.app == app }
+    }
+
+    /// How the inbox is ordered.
+    enum Sort: String, CaseIterable, Identifiable {
+        case recent = "Most recent"
+        case unread = "Unread first"
+        var id: String { rawValue }
+        var symbol: String {
+            switch self {
+            case .recent: return "clock"
+            case .unread: return "circle.fill"
+            }
+        }
+    }
+
+    /// 🔴 This used to only FILTER, never sort, so the order was whatever the
+    /// ingest pass happened to produce. It looked right because notifications
+    /// usually arrive newest last, but nothing guaranteed it, and a message
+    /// backfilled from the Slack API lands by whenever it was fetched rather
+    /// than by when it was sent. Ordering is now explicit and tested. Same
+    /// mistake as the pipeline board sorting on the wrong date.
+    /// What belongs in the inbox right now: nothing muted, nothing snoozed,
+    /// in a stated order.
     static func inboxList(_ messages: [InboxMessage], muted: Set<String>,
+                          sort: Sort = .recent,
                           now: Date = Date()) -> [InboxMessage] {
-        messages.filter { !muted.contains($0.app) && !$0.isSnoozed(at: now) }
+        let kept = messages.filter { !muted.contains($0.app) && !$0.isSnoozed(at: now) }
+        switch sort {
+        case .recent:
+            return kept.sorted { $0.date > $1.date }
+        case .unread:
+            // Unread first, and newest within each half, so "unread first" is
+            // still readable rather than an arbitrary pile.
+            return kept.sorted {
+                $0.read == $1.read ? $0.date > $1.date : !$0.read && $1.read
+            }
+        }
     }
 
     static func snoozedList(_ messages: [InboxMessage], muted: Set<String>,
