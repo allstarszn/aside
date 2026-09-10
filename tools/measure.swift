@@ -50,11 +50,13 @@ enum Measure {
         print("question: \(question)")
         print("hits: \(hits.count), using \(used.count)")
         for hit in used { print("  - \(hit.source): \(hit.title)") }
-        guard !used.isEmpty else { print("\nno matches, so nothing is asked of the model"); return 0 }
+        // No short circuit: the app now CHATS when nothing matches, so the
+        // exerciser has to take the same path or it tests something else.
+        if used.isEmpty { print("  (nothing matched, so this is a plain conversation)") }
         do {
             let started = Date()
             let answer = try await AskReader().answer(
-                question: question, context: AskView.context(from: used))
+                question: question, context: AskView.context(from: used), history: "")
             print("\nanswer (\(String(format: "%.2fs", Date().timeIntervalSince(started)))):")
             print(answer)
         } catch {

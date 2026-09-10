@@ -126,10 +126,38 @@ enum Tests {
         check("a repeated word is searched once",
               AskView.terms(from: "invoice invoice invoice") == ["invoice"])
         check("two letter words are skipped", AskView.terms(from: "is it ok").isEmpty)
-        // A question of nothing but common words must still search something,
-        // rather than silently answering "nothing found".
-        check("a question with no useful words still searches",
-              !AskView.find(question: "what is it", notes: [], messages: []).isEmpty == false)
+        // 🔴 The bug he caught: "hey" was searched, matched messages containing
+        // it, and the answer came back "I cannot help you with that request".
+        // A greeting is conversation, so nothing is looked up.
+        check("a greeting is not a search", AskView.terms(from: "hey").isEmpty)
+        check("neither is small talk", AskView.terms(from: "hi how are you").isEmpty)
+        check("no searchable words means no search at all",
+              AskView.find(question: "hey", notes: [], messages: []).isEmpty)
+        check("a real question still searches", !AskView.terms(from: "where is the invoice").isEmpty)
+
+        // History is a BUDGET, not a memory: the window is 4,096 tokens.
+        let chat = (1...10).map { index in
+            AskView.Turn(question: "question \(index)",
+                         answer: String(repeating: "answer ", count: 200), sources: [])
+        }
+        let recalled = AskView.transcript(chat)
+        check("only the last few turns are recalled",
+              recalled.components(separatedBy: "They asked:").count - 1 == AskView.historyTurns)
+        check("each recalled turn is clipped",
+              recalled.count < AskView.historyTurns * (AskView.historyLimit * 2 + 60))
+        check("the most recent turn survives", recalled.contains("question 10"))
+        check("an empty conversation recalls nothing", AskView.transcript([]).isEmpty)
+        // A refused turn is not worth reminding the model of.
+        let failedTurn = [AskView.Turn(question: "q", answer: "no", sources: [], failed: true)]
+        check("a failed turn is not recalled", AskView.transcript(failedTurn).isEmpty)
+
+        // 🔴 A prompt that reads like a transcript gets continued like one: the
+        // first conversational reply came back as "Me: hi! What's up?".
+        check("a leaked role label is stripped", AskView.clean("Me: hi there") == "hi there")
+        check("so is an assistant label", AskView.clean("Assistant: sure") == "sure")
+        check("a normal answer is untouched", AskView.clean("hi there") == "hi there")
+        check("a colon inside a real answer survives",
+              AskView.clean("the note says: call at 4") == "the note says: call at 4")
 
         print("display choice")
         let builtIn = ScreenRef(id: 1, name: "Built-in Retina Display")

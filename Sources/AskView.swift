@@ -26,6 +26,42 @@ struct AskView: View {
         var failed: Bool = false
     }
 
+    /// How much of the conversation the model is reminded of. The window is
+    /// 4,096 tokens, so this is a budget, not a memory: older turns fall off.
+    static let historyTurns = 4
+    static let historyLimit = 220
+
+    /// The conversation so far, oldest first, trimmed to fit.
+    ///
+    /// 🔑 Rebuilt into a FRESH session every turn rather than kept in a
+    /// long-lived one. A `LanguageModelSession` grows its transcript until it
+    /// blows the window, which is exactly how the message reader died; passing
+    /// a trimmed history in the prompt keeps the size under our control.
+    static func transcript(_ turns: [Turn]) -> String {
+        turns.suffix(historyTurns).compactMap { turn -> String? in
+            guard let answer = turn.answer, !turn.failed else { return nil }
+            let question = String(turn.question.prefix(historyLimit))
+            return "They asked: \(question)\nYou replied: \(String(answer.prefix(historyLimit)))"
+        }.joined(separator: "\n\n")
+    }
+
+    /// Strips a role label the model prefixed its own answer with.
+    ///
+    /// 🔴 A prompt that ends in "Them: hey" reads as a transcript, so the model
+    /// continues it and answers "Me: hi! What's up?". The prompt no longer ends
+    /// that way, and this catches it if the model invents a label anyway.
+    static func clean(_ answer: String) -> String {
+        var text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        for label in ["Me:", "You:", "Aside:", "aside:", "Assistant:", "A:"] {
+            if text.hasPrefix(label) {
+                text = String(text.dropFirst(label.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+        return text
+    }
+
     /// The model gets a handful of hits, clipped. The window is 4,096 tokens
     /// and a long note will eat it on its own, which fails the whole answer
     /// rather than degrading it.
@@ -45,6 +81,11 @@ struct AskView: View {
         "told", "get", "got", "have", "has", "had", "can", "could", "would",
         "should", "will", "shall", "may", "might", "must", "there", "here",
         "up", "down", "out", "off", "just", "now", "last", "week", "day",
+        // 🔴 Conversation, not a query. Without these "hey" is searched, matches
+        // any message containing it, and the answer comes back as a refusal.
+        "hey", "hi", "hello", "yo", "sup", "thanks", "thank", "please", "ok",
+        "okay", "yes", "no", "yeah", "nah", "sure", "cool", "nice", "lol",
+        "good", "morning", "evening", "night", "help", "aside",
     ]
 
     /// The words worth searching for in a question.
@@ -67,8 +108,11 @@ struct AskView: View {
     /// a result matched, so a hit on two words beats a hit on one.
     static func find(question: String, notes: [Note], messages: [InboxMessage]) -> [SearchHit] {
         let words = terms(from: question)
-        // A question of nothing but common words still deserves a literal try.
-        let queries = words.isEmpty ? [question] : words
+        // 🔴 No searchable words means DO NOT SEARCH. The literal fallback that
+        // used to sit here turned "hey" into a lookup, matched every message
+        // containing it, and the answer came back a refusal.
+        guard !words.isEmpty else { return [] }
+        let queries = words
         var best: [String: (hit: SearchHit, matched: Int)] = [:]
         for query in queries {
             for hit in UnifiedSearch.run(query: query, notes: notes, messages: messages, limit: 20) {
@@ -203,30 +247,29 @@ struct AskView: View {
         let hits = Self.find(question: question, notes: store.notes,
                              messages: inbox.visible)
         let used = Array(hits.prefix(Self.maxHits))
+        let history = Self.transcript(turns)
         let turn = Turn(question: question, answer: nil,
                         sources: used.map { "\($0.source): \($0.title)" })
         turns.append(turn)
         let id = turn.id
 
         Task {
-            let outcome = await answer(question: question, hits: used)
+            let outcome = await answer(question: question, hits: used, history: history)
             await MainActor.run {
                 if let index = turns.firstIndex(where: { $0.id == id }) {
                     turns[index].answer = outcome.text
                     turns[index].failed = outcome.failed
                     if outcome.failed { turns[index].sources = [] }
+                    // Nothing was searched, so nothing should be credited.
+                    if used.isEmpty { turns[index].sources = [] }
                 }
                 thinking = false
             }
         }
     }
 
-    private func answer(question: String, hits: [SearchHit]) async -> (text: String, failed: Bool) {
-        guard !hits.isEmpty else {
-            // Saying nothing was found beats inventing an answer from nothing,
-            // which is exactly what a model does when handed an empty context.
-            return ("Nothing in your notes or messages matches that.", true)
-        }
+    private func answer(question: String, hits: [SearchHit],
+                        history: String) async -> (text: String, failed: Bool) {
         #if canImport(FoundationModels)
         guard #available(macOS 26, *), Intelligence.isReady else {
             return ("The on-device model is not available.", true)
@@ -234,7 +277,8 @@ struct AskView: View {
         do {
             let reader = try AskReader()
             return (try await reader.answer(question: question,
-                                            context: Self.context(from: hits)), false)
+                                            context: Self.context(from: hits),
+                                            history: history), false)
         } catch {
             return ("Could not read that. Try a shorter question.", true)
         }
@@ -247,36 +291,47 @@ struct AskView: View {
 #if canImport(FoundationModels)
 import FoundationModels
 
-/// Answers a question from passages already found by search.
+/// The conversation behind the Ask surface.
+///
+/// 🔴 It is a CHAT that happens to know your messages, not a lookup with a text
+/// box. The first version was told to answer only from the passages, so "hey"
+/// was searched, matched a few messages, and came back "I cannot help you with
+/// that request". A chat box invites conversation; refusing to converse in one
+/// is the wrong shape, however good the retrieval underneath is.
 @available(macOS 26, *)
 actor AskReader {
-    private let session: () -> LanguageModelSession
+    private static let instructions = """
+    You are aside, an assistant living in a side panel on someone's Mac, beside \
+    their notes and their messages from Slack, iMessage, WhatsApp and Discord.
 
-    init() throws {
-        // 🔴 A fresh session per question, for the same reason the message
-        // reader builds one per message: a session keeps its whole transcript
-        // and grows until it blows the 4,096 token window.
-        session = {
-            LanguageModelSession(instructions: """
-            You answer a question using ONLY the passages provided. The passages \
-            come from the reader's own notes and messages.
+    Talk normally. If they say hello or make small talk, just reply like a \
+    person would, briefly. If they ask a general question, answer it.
 
-            Answer in one or two short sentences. Quote the useful part. If the \
-            passages do not contain the answer, say so plainly rather than \
-            guessing. Never invent a name, a date or a number that is not in \
-            the passages.
-            """)
-        }
-    }
+    Sometimes you will be given passages from their own notes and messages. \
+    Use them when they help, and quote the useful part. If they do not fit the \
+    question, ignore them completely and answer anyway. Never mention that you \
+    were given passages.
 
-    func answer(question: String, context: String) async throws -> String {
-        let prompt = """
-        Passages:
-        \(context)
+    Never invent a name, a date, a number or a message that was not in the \
+    passages. If you are asked about something in their notes or messages and \
+    the passages do not cover it, say you could not find it.
 
-        Question: \(question)
-        """
-        return try await session().respond(to: prompt).content
+    Keep answers short, two or three sentences unless more is genuinely needed.
+    """
+
+    init() throws {}
+
+    func answer(question: String, context: String, history: String) async throws -> String {
+        // 🔴 A fresh session per turn, with the history passed in the prompt.
+        // A long-lived session grows its transcript until it blows the 4,096
+        // token window, which is how the message reader silently died after
+        // roughly forty messages.
+        let session = LanguageModelSession(instructions: Self.instructions)
+        var prompt = ""
+        if !history.isEmpty { prompt += "Earlier in this conversation:\n\(history)\n\n" }
+        if !context.isEmpty { prompt += "Passages from their notes and messages:\n\(context)\n\n" }
+        prompt += question
+        return AskView.clean(try await session.respond(to: prompt).content)
     }
 }
 #endif
