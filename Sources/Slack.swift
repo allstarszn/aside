@@ -52,9 +52,17 @@ enum Slack {
             // 🔴 user_scope, NOT scope. Putting these in `scope` asks for a BOT
             // token instead and every reply would carry an APP badge.
             .init(name: "user_scope", value: userScopes.joined(separator: ",")),
-            .init(name: "redirect_uri", value: callbackURL),
             .init(name: "state", value: state),
         ]
+        // 🔴 redirect_uri is DELIBERATELY OMITTED. Slack's own generated
+        // "Sharable URL" for this app omits it, and Slack falls back to the
+        // single URL registered on the app, which is the same destination.
+        // Sending it explicitly was the last difference between our URL and
+        // Slack's, and Slack's install step hangs on ours.
+        //
+        // 🔴 If it is ever added back here it MUST also be sent on the token
+        // exchange in the callback route. Slack requires the two to match, and
+        // a redirect_uri on one side only fails the exchange.
         return components?.url
     }
 

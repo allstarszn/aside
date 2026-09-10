@@ -204,8 +204,12 @@ enum Tests {
         // and every reply would carry an APP badge.
         check("scopes are asked for as USER scopes", authorize.contains("user_scope="))
         check("it does not ask for bot scopes", !authorize.contains("&scope="))
-        check("the redirect points at the site that holds the secret",
-              authorize.contains("api/slack/callback"))
+        // 🔴 Omitted on purpose: Slack's own generated URL omits it and falls
+        // back to the app's registered URL. If this ever comes back, the token
+        // exchange in the callback route has to send it too, or the exchange
+        // fails on a mismatch.
+        check("no redirect_uri is sent, matching Slack's own URL",
+              !authorize.contains("redirect_uri"))
         check("the state is carried", authorize.contains("state=S1"))
         // Percent encoding of ":" varies by how the components are built, so
         // assert on the scope being present at all rather than on its escaping.
