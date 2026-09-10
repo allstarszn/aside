@@ -54,7 +54,8 @@ struct UnreadView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 5) {
+                            AppBadge(bundleID: message.app, size: 12)
                             Text(InboxStore.appName(message.app))
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.tertiary)

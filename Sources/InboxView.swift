@@ -176,6 +176,7 @@ private struct MessageRow: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 HStack(spacing: 5) {
+                    AppBadge(bundleID: message.app, size: 11)
                     Text(InboxStore.appName(message.app))
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
