@@ -29,16 +29,16 @@ let samples: [(String, String)] = [
 
     - [ ] confirm the room
     - [x] send the invite
-    - reply to Max
+    - reply to the client
 
-    > he reads the stage column as a total
+    > they read the top number as a running total
 
     ---
     ### After
     Write it up.
     """),
     ("Ad angles for Q4", "hook: nobody trusts a dashboard they cannot audit\n\ntest against the founder-led list first, then cold"),
-    ("Call with Max - notes", "wants the stage column to read cumulative\nasked about payment plan installments"),
+    ("Call notes", "wants the summary column to read cumulative\nasked how instalments are counted"),
     ("Groceries", "coffee\noat milk\nrice"),
 ]
 for (name, body) in samples {
