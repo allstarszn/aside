@@ -403,6 +403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         """
         alert.addButton(withTitle: "Connect")
         alert.addButton(withTitle: "Cancel")
+        // So nobody has to go hunting for where the token lives.
+        alert.addButton(withTitle: "Open Slack Settings")
 
         // Plain, not secure: he is pasting on his own machine, and a hidden
         // field turns a mis-paste into an error message about nothing.
@@ -412,7 +414,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.activate()
         alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let choice = alert.runModal()
+
+        // Third button: open the page and come straight back to the dialog, so
+        // the token can be pasted without starting over.
+        if choice == .alertThirdButtonReturn {
+            if let url = Slack.tokenPageURL { NSWorkspace.shared.open(url) }
+            pasteSlackToken()
+            return
+        }
+        guard choice == .alertFirstButtonReturn else { return }
 
         let pasted = field.stringValue
         // Off the main thread: this calls Slack, and a spinner beats a beachball.

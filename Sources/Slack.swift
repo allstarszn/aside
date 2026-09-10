@@ -28,6 +28,16 @@ enum Slack {
 
     static var isConfigured: Bool { !clientID.isEmpty }
 
+    /// Where the User OAuth Token lives, for the paste dialog.
+    ///
+    /// Built from the app id rather than hardcoded, so it still points
+    /// somewhere sensible if the app is ever recreated. The team segment is
+    /// optional to Slack: it redirects to the right workspace on its own.
+    static let appID = "A0C0Q20ENLW"
+    static var tokenPageURL: URL? {
+        URL(string: "https://api.slack.com/apps/\(appID)/oauth")
+    }
+
     /// Every scope is a USER scope. A user token posts under the person's own
     /// name; a bot token tags each reply with an "APP" badge.
     static let userScopes = [
