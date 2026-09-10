@@ -191,9 +191,12 @@ enum Tests {
               Slack.token(fromCallback: URL(string: "aside://slack?token=xoxp-a%2Bb&state=S1")!,
                           expecting: "S1") == "xoxp-a+b")
 
+        // Self-contained: this must not depend on whatever id happens to ship.
+        let realID = Slack.clientID
+        Slack.clientID = ""
         check("with no client id there is nowhere to send anyone",
               Slack.authorizeURL(state: "S1") == nil)
-        let realID = Slack.clientID
+        check("and nothing claims to be configured", !Slack.isConfigured)
         Slack.clientID = "123.apps"
         let authorize = Slack.authorizeURL(state: "S1")?.absoluteString ?? ""
         Slack.clientID = realID
@@ -208,6 +211,7 @@ enum Tests {
         // assert on the scope being present at all rather than on its escaping.
         check("it asks for the scope that names senders",
               authorize.contains("users") && authorize.contains("read"))
+        check("the shipped build is configured", !realID.isEmpty)
 
         print("note previews")
         // 🔑 The EDITOR keeps markdown visible on purpose. A one line preview is
@@ -766,22 +770,31 @@ enum Tests {
                          snoozedUntil: snoozed)
         }
         let now = Date()
-        let putAway = row("a", snoozed: now.addingTimeInterval(3600))
-        let waiting = row("b")
-        let expired = row("c", snoozed: now.addingTimeInterval(-60))
+        // 🔴 Dates PINNED, never defaulted to Date() per row. Defaulting gave
+        // each row a timestamp microseconds apart, which the clock sometimes
+        // reported as equal and sometimes did not, so the order flipped between
+        // runs and the suite failed roughly one time in three. A test that
+        // depends on clock granularity is not testing the thing it names.
+        let putAway = row("a", date: now.addingTimeInterval(-100),
+                          snoozed: now.addingTimeInterval(3600))
+        let waiting = row("b", date: now.addingTimeInterval(-200))
+        let expired = row("c", date: now.addingTimeInterval(-300),
+                          snoozed: now.addingTimeInterval(-60))
 
         check("a snooze in the future hides it", putAway.isSnoozed(at: now))
         check("a snooze that has passed does not", !expired.isSnoozed(at: now))
         check("no snooze is not snoozed", !waiting.isSnoozed(at: now))
 
         let pile = [putAway, waiting, expired]
-        // Ordered by id here because these share a timestamp: the tiebreak is
-        // what stops equal dates shuffling between rebuilds.
+        // Newest first: b is more recent than c.
         check("the inbox shows only what is due",
               InboxStore.inboxList(pile, muted: [], now: now).map(\.id) == ["b", "c"])
+        // The tiebreak that stops equal dates shuffling between rebuilds, tested
+        // on rows that genuinely DO share a timestamp.
+        let sameInstant = [row("z", date: now), row("y", date: now), row("x", date: now)]
         check("messages sharing a timestamp keep a stable order",
-              (0..<20).allSatisfy {  _ in
-                  InboxStore.inboxList(pile, muted: [], now: now).map(\.id) == ["b", "c"]
+              (0..<50).allSatisfy { _ in
+                  InboxStore.inboxList(sameInstant, muted: [], now: now).map(\.id) == ["x", "y", "z"]
               })
         check("the snoozed list holds the rest",
               InboxStore.snoozedList(pile, muted: [], now: now).map(\.id) == ["a"])

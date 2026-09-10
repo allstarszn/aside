@@ -18,7 +18,7 @@ enum Slack {
     /// shipped binary and a leaked secret mints tokens against his app.
     /// A var so the suite can check the URL it builds without shipping a real
     /// id, the same way `service` is overridable for the keychain.
-    static var clientID = ""
+    static var clientID = "11321591466704.12024068498710"
 
     /// Where Slack sends people back. 🔴 Slack accepts HTTPS redirect URLs
     /// ONLY, so aside cannot catch this on 127.0.0.1 the way Google's
