@@ -83,7 +83,7 @@ struct ThreadView: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                 HStack(spacing: 4) {
-                    AppBadge(bundleID: message.app, size: 14)
+                    AppBadge(bundleID: message.app, size: 17)
                     Text(InboxStore.appName(message.app))
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
