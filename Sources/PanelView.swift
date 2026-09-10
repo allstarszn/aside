@@ -31,6 +31,9 @@ struct PanelView: View {
     @ObservedObject private var screens = ScreenChoice.shared
     @State private var showingList: Bool
     @State private var query = ""
+    /// Mirrored into view state so the menu never reads the keychain while
+    /// SwiftUI is drawing. Refreshed when a connection actually changes.
+    @State private var slackConnected = false
 
     /// Read from the shared model so the rail and the panel can never disagree
     /// about which surface is on screen.
@@ -79,7 +82,13 @@ struct PanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clear)
-        .onAppear { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
+        .onAppear {
+            NotificationCenter.default.post(name: .asideFocusEditor, object: nil)
+            slackConnected = Slack.isConnected
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .asideSlackChanged)) { _ in
+            slackConnected = Slack.isConnected
+        }
     }
 
     // MARK: - Header
@@ -419,6 +428,20 @@ struct PanelView: View {
                                 set: { if $0 { screens.select(option.id) } }
                             ))
                         }
+                    }
+                    Divider()
+                }
+                // Read once when the menu opens, never on a redraw: this
+                // touches the keychain, and an uncached read on a redrawing
+                // path is what cost about a hundred password prompts.
+                if Slack.isConfigured {
+                    if slackConnected {
+                        Button("Disconnect Slack") {
+                            Slack.clearToken()
+                            slackConnected = false
+                        }
+                    } else {
+                        Button("Connect Slack...") { Slack.beginConnect() }
                     }
                     Divider()
                 }

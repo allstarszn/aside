@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Security
 
 /// Replying to Slack through its official API.
@@ -8,6 +9,97 @@ import Security
 /// under their own name and with no "APP" badge. Bot tokens are what produce
 /// that badge, so they are deliberately not used.
 enum Slack {
+    // MARK: - Connecting
+
+    /// Brandon's Slack app, from api.slack.com/apps. Public by design: it ships
+    /// in every copy of aside and identifies the app, not the person.
+    /// 🔴 The client SECRET is NOT here and must never be. It lives only as an
+    /// environment variable on the landing site, because anyone can read a
+    /// shipped binary and a leaked secret mints tokens against his app.
+    /// A var so the suite can check the URL it builds without shipping a real
+    /// id, the same way `service` is overridable for the keychain.
+    static var clientID = ""
+
+    /// Where Slack sends people back. 🔴 Slack accepts HTTPS redirect URLs
+    /// ONLY, so aside cannot catch this on 127.0.0.1 the way Google's
+    /// installed-app flow allows. The site holds the door open and hands the
+    /// token back through the aside:// scheme.
+    static let callbackURL = "https://aside-landing-two.vercel.app/api/slack/callback"
+
+    static var isConfigured: Bool { !clientID.isEmpty }
+
+    /// Every scope is a USER scope. A user token posts under the person's own
+    /// name; a bot token tags each reply with an "APP" badge.
+    static let userScopes = [
+        "chat:write",
+        "channels:read", "groups:read", "im:read", "mpim:read",
+        "channels:history", "groups:history", "im:history", "mpim:history",
+        "users:read",
+    ]
+
+    /// Proves the callback belongs to a connection this app started.
+    /// Held in memory only: it is meaningless after the app quits, and a stale
+    /// one on disk would accept a callback from a previous attempt.
+    private(set) static var pendingState: String?
+
+    /// The page to send someone to. Pure, so the suite can check the shape of
+    /// the URL without opening a browser.
+    static func authorizeURL(state: String) -> URL? {
+        guard isConfigured else { return nil }
+        var components = URLComponents(string: "https://slack.com/oauth/v2/authorize")
+        components?.queryItems = [
+            .init(name: "client_id", value: clientID),
+            // 🔴 user_scope, NOT scope. Putting these in `scope` asks for a BOT
+            // token instead and every reply would carry an APP badge.
+            .init(name: "user_scope", value: userScopes.joined(separator: ",")),
+            .init(name: "redirect_uri", value: callbackURL),
+            .init(name: "state", value: state),
+        ]
+        return components?.url
+    }
+
+    /// Opens the browser at Slack's approval page.
+    @discardableResult
+    static func beginConnect() -> Bool {
+        var bytes = [UInt8](repeating: 0, count: 24)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let state = Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        pendingState = state
+        guard let url = authorizeURL(state: state) else { return false }
+        NSWorkspace.shared.open(url)
+        return true
+    }
+
+    /// The token out of an `aside://slack?token=...&state=...` callback.
+    ///
+    /// 🔴 The state must match the one this app generated. A URL scheme can be
+    /// claimed by any app on the machine, so without this check a callback that
+    /// aside never started would be accepted and its token stored.
+    static func token(fromCallback url: URL, expecting state: String?) -> String? {
+        guard url.scheme?.lowercased() == "aside",
+              url.host?.lowercased() == "slack",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems else { return nil }
+        let returned = items.first(where: { $0.name == "state" })?.value
+        guard let state, let returned, returned == state else { return nil }
+        let token = items.first(where: { $0.name == "token" })?.value
+        // A user token starts xoxp-. Anything else is not what was asked for.
+        guard let token, token.hasPrefix("xoxp-") else { return nil }
+        return token
+    }
+
+    /// Handles a callback end to end. Returns false without storing anything if
+    /// the callback is not one this app started.
+    @discardableResult
+    static func completeConnect(_ url: URL) -> Bool {
+        guard let token = token(fromCallback: url, expecting: pendingState) else { return false }
+        pendingState = nil
+        return storeToken(token)
+    }
+
     // MARK: - Token storage
     //
     // A token is a credential, so it lives in the Keychain rather than in

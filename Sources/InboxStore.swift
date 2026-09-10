@@ -182,14 +182,23 @@ final class InboxStore: ObservableObject {
                           sort: Sort = .recent,
                           now: Date = Date()) -> [InboxMessage] {
         let kept = messages.filter { !muted.contains($0.app) && !$0.isSnoozed(at: now) }
+        // 🔴 Every comparison ends in a tiebreak on id, because Swift's sort is
+        // NOT stable: two messages sharing a timestamp would come back in a
+        // different order each time the list was rebuilt, and the inbox rebuilds
+        // every few seconds. That is visible jitter, and it showed up first as a
+        // test that passed on one run and failed on the next.
         switch sort {
         case .recent:
-            return kept.sorted { $0.date > $1.date }
-        case .unread:
-            // Unread first, and newest within each half, so "unread first" is
-            // still readable rather than an arbitrary pile.
             return kept.sorted {
-                $0.read == $1.read ? $0.date > $1.date : !$0.read && $1.read
+                $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date
+            }
+        case .unread:
+            // Unread first, newest within each half, so "unread first" is still
+            // readable rather than an arbitrary pile.
+            return kept.sorted {
+                if $0.read != $1.read { return !$0.read && $1.read }
+                if $0.date != $1.date { return $0.date > $1.date }
+                return $0.id < $1.id
             }
         }
     }

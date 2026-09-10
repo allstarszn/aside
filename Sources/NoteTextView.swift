@@ -3,6 +3,11 @@ import AppKit
 
 extension Notification.Name {
     static let asideFocusEditor = Notification.Name("asideFocusEditor")
+    /// Slack was connected or disconnected, so anything showing its state
+    /// should re-read it. Posted rather than polled: `Slack.isConnected` reads
+    /// the keychain, and a view that checked it on every redraw is what caused
+    /// the password-prompt storm.
+    static let asideSlackChanged = Notification.Name("asideSlackChanged")
 }
 
 /// Notes-style editor: the first line renders as the title, the rest as body.

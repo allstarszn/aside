@@ -30,6 +30,15 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key><string>Aside</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- How a Slack token gets back into the app. Slack only redirects to HTTPS,
+       so the landing site catches the callback and forwards it here. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>com.espyagency.aside</string>
+      <key>CFBundleURLSchemes</key><array><string>aside</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

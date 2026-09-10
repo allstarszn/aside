@@ -159,6 +159,56 @@ enum Tests {
         check("a colon inside a real answer survives",
               AskView.clean("the note says: call at 4") == "the note says: call at 4")
 
+        print("connecting slack")
+        // 🔴 A URL scheme can be claimed by any app on the machine, so a
+        // callback aside did not start must be refused. Without the state check
+        // a token from anywhere would be accepted and written to the keychain.
+        let good = URL(string: "aside://slack?token=xoxp-abc123&state=S1")!
+        check("a callback we started is accepted",
+              Slack.token(fromCallback: good, expecting: "S1") == "xoxp-abc123")
+        check("a callback we did not start is refused",
+              Slack.token(fromCallback: good, expecting: "OTHER") == nil)
+        check("no pending state means refuse everything",
+              Slack.token(fromCallback: good, expecting: nil) == nil)
+        check("a missing state is refused",
+              Slack.token(fromCallback: URL(string: "aside://slack?token=xoxp-a")!,
+                          expecting: "S1") == nil)
+        // Slack returns a bot token if the scopes were asked for the wrong way,
+        // and a bot token tags every reply with an APP badge.
+        check("a bot token is refused",
+              Slack.token(fromCallback: URL(string: "aside://slack?token=xoxb-nope&state=S1")!,
+                          expecting: "S1") == nil)
+        check("another host on our own scheme is ignored",
+              Slack.token(fromCallback: URL(string: "aside://other?token=xoxp-a&state=S1")!,
+                          expecting: "S1") == nil)
+        check("another app's scheme is ignored",
+              Slack.token(fromCallback: URL(string: "other://slack?token=xoxp-a&state=S1")!,
+                          expecting: "S1") == nil)
+        check("no token is refused",
+              Slack.token(fromCallback: URL(string: "aside://slack?state=S1")!,
+                          expecting: "S1") == nil)
+        check("a token needing escaping survives the round trip",
+              Slack.token(fromCallback: URL(string: "aside://slack?token=xoxp-a%2Bb&state=S1")!,
+                          expecting: "S1") == "xoxp-a+b")
+
+        check("with no client id there is nowhere to send anyone",
+              Slack.authorizeURL(state: "S1") == nil)
+        let realID = Slack.clientID
+        Slack.clientID = "123.apps"
+        let authorize = Slack.authorizeURL(state: "S1")?.absoluteString ?? ""
+        Slack.clientID = realID
+        // 🔴 user_scope, NOT scope. Asking through `scope` returns a BOT token
+        // and every reply would carry an APP badge.
+        check("scopes are asked for as USER scopes", authorize.contains("user_scope="))
+        check("it does not ask for bot scopes", !authorize.contains("&scope="))
+        check("the redirect points at the site that holds the secret",
+              authorize.contains("api/slack/callback"))
+        check("the state is carried", authorize.contains("state=S1"))
+        // Percent encoding of ":" varies by how the components are built, so
+        // assert on the scope being present at all rather than on its escaping.
+        check("it asks for the scope that names senders",
+              authorize.contains("users") && authorize.contains("read"))
+
         print("note previews")
         // 🔑 The EDITOR keeps markdown visible on purpose. A one line preview is
         // the opposite case: no cursor, nothing to shift, and the syntax is noise.
@@ -725,8 +775,14 @@ enum Tests {
         check("no snooze is not snoozed", !waiting.isSnoozed(at: now))
 
         let pile = [putAway, waiting, expired]
+        // Ordered by id here because these share a timestamp: the tiebreak is
+        // what stops equal dates shuffling between rebuilds.
         check("the inbox shows only what is due",
               InboxStore.inboxList(pile, muted: [], now: now).map(\.id) == ["b", "c"])
+        check("messages sharing a timestamp keep a stable order",
+              (0..<20).allSatisfy {  _ in
+                  InboxStore.inboxList(pile, muted: [], now: now).map(\.id) == ["b", "c"]
+              })
         check("the snoozed list holds the rest",
               InboxStore.snoozedList(pile, muted: [], now: now).map(\.id) == ["a"])
         check("a muted app is hidden from the inbox",

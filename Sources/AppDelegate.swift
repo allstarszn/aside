@@ -618,6 +618,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The menu bar item and anything else that just wants the drawer shown.
+    /// A callback arriving on the aside:// scheme.
+    ///
+    /// 🔑 Registered in `applicationWillFinishLaunching`, not `didFinish`: macOS
+    /// can deliver the URL before the app has finished launching, and a handler
+    /// installed too late simply never hears about it.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme?.lowercased() == "aside" {
+            guard url.host?.lowercased() == "slack" else { continue }
+            let connected = Slack.completeConnect(url)
+            NotificationCenter.default.post(name: .asideSlackChanged, object: nil)
+            if connected, !isExpanded { expand() }
+        }
+    }
+
     private func toggleDrawer() { isExpanded ? collapse() : expand() }
 
     /// A rail click. Tapping the surface already on screen closes the drawer,
