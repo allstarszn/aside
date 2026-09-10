@@ -389,6 +389,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Paste a Slack user token by hand.
+    ///
+    /// 🔴 A stopgap, not the product. Connect Slack is the flow anyone else
+    /// should ever see: nobody should have to open a developer console to use
+    /// aside. This exists because Slack's own install page currently hangs
+    /// before it sends anything, and this is the only way back in meanwhile.
+    func pasteSlackToken() {
+        let alert = NSAlert()
+        alert.messageText = "Paste a Slack token"
+        alert.informativeText = """
+        From your Slack app's OAuth & Permissions page, the User OAuth Token         beginning xoxp-. aside checks it with Slack before saving it.
+        """
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Cancel")
+
+        // Plain, not secure: he is pasting on his own machine, and a hidden
+        // field turns a mis-paste into an error message about nothing.
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 22))
+        field.placeholderString = "xoxp-..."
+        alert.accessoryView = field
+
+        NSApp.activate()
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let pasted = field.stringValue
+        // Off the main thread: this calls Slack, and a spinner beats a beachball.
+        DispatchQueue.global().async { [weak self] in
+            let result = Slack.connect(pasted: pasted)
+            DispatchQueue.main.async {
+                self?.reportSlackConnection(result)
+            }
+        }
+    }
+
+    private func reportSlackConnection(_ result: Slack.PasteResult) {
+        NotificationCenter.default.post(name: .asideSlackChanged, object: nil)
+        let done = NSAlert()
+        switch result {
+        case .connected(let who):
+            done.messageText = "Slack connected"
+            done.informativeText = "Signed in as \(who). Your messages and replies will start working."
+        case .notAUserToken:
+            done.messageText = "That is not a user token"
+            done.informativeText = """
+            A user token starts with xoxp-. A bot token (xoxb-) would post             replies as the app rather than as you.
+            """
+        case .rejected(let reason):
+            done.messageText = "Slack would not accept it"
+            done.informativeText = reason
+        }
+        done.addButton(withTitle: "OK")
+        NSApp.activate()
+        done.runModal()
+    }
+
     func chooseNotesFolder() {
         let panelWasOpen = isExpanded
         let open = NSOpenPanel()

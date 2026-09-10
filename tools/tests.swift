@@ -217,6 +217,28 @@ enum Tests {
               authorize.contains("users") && authorize.contains("read"))
         check("the shipped build is configured", !realID.isEmpty)
 
+        print("pasting a slack token")
+        // 🔴 Trimmed always. Copying a token out of a web page drags whitespace
+        // and newlines with it, and Slack then rejects it with an error that
+        // says nothing about whitespace. The same trap already bit InfoOS.
+        check("a trailing newline is trimmed", Slack.tidy("xoxp-abc\n") == "xoxp-abc")
+        check("surrounding spaces are trimmed", Slack.tidy("  xoxp-abc  ") == "xoxp-abc")
+        check("a tab is trimmed", Slack.tidy("\txoxp-abc") == "xoxp-abc")
+        // An invisible direction mark once made a five letter word six, in the
+        // WhatsApp heading check. A copied token can carry the same thing.
+        check("a direction mark is stripped",
+              Slack.tidy("\u{200E}xoxp-abc") == "xoxp-abc")
+        check("a clean token is untouched", Slack.tidy("xoxp-abc") == "xoxp-abc")
+
+        check("a user token is accepted", Slack.looksLikeUserToken("xoxp-123"))
+        // 🔴 A bot token would post every reply as the app, with an APP badge
+        // next to it, rather than as the person.
+        check("a bot token is refused", !Slack.looksLikeUserToken("xoxb-123"))
+        check("an app token is refused", !Slack.looksLikeUserToken("xapp-123"))
+        check("empty is refused", !Slack.looksLikeUserToken(""))
+        check("something pasted by mistake is refused",
+              !Slack.looksLikeUserToken("https://slack.com/oauth"))
+
         print("note previews")
         // 🔑 The EDITOR keeps markdown visible on purpose. A one line preview is
         // the opposite case: no cursor, nothing to shift, and the syntax is noise.

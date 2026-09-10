@@ -99,6 +99,54 @@ enum Slack {
         return token
     }
 
+    /// Why a pasted token was refused, in words worth showing someone.
+    enum PasteResult: Equatable {
+        case connected(String)
+        case notAUserToken
+        case rejected(String)
+    }
+
+    /// Cleans up a pasted token. Pure and testable.
+    ///
+    /// 🔴 Trimmed, always. Copying a token out of a web page drags whitespace
+    /// and newlines with it, and a token with a trailing newline fails against
+    /// Slack with an error that says nothing about whitespace. The same trap
+    /// already bit the login form in InfoOS.
+    static func tidy(_ pasted: String) -> String {
+        pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{200F}", with: "")
+    }
+
+    static func looksLikeUserToken(_ token: String) -> Bool {
+        token.hasPrefix("xoxp-")
+    }
+
+    /// Stores a pasted token, but only after Slack itself accepts it.
+    ///
+    /// 🔑 Verified by CALLING Slack, not by matching a pattern. A regex only
+    /// proves the shape; `auth.test` proves the thing actually works, which is
+    /// the only claim worth making before telling someone they are connected.
+    static func connect(pasted: String) -> PasteResult {
+        let token = tidy(pasted)
+        guard looksLikeUserToken(token) else { return .notAUserToken }
+        // Held aside so a rejected token cannot displace a working one.
+        let previous = cachedToken
+        cachedToken = token
+        do {
+            let who = try whoAmI()
+            guard storeToken(token) else {
+                cachedToken = previous
+                return .rejected("Could not save it to the keychain.")
+            }
+            return .connected(who)
+        } catch {
+            cachedToken = previous
+            let reason = (error as? SlackError).map { "\($0)" } ?? error.localizedDescription
+            return .rejected(reason)
+        }
+    }
+
     /// Handles a callback end to end. Returns false without storing anything if
     /// the callback is not one this app started.
     @discardableResult

@@ -443,6 +443,10 @@ struct PanelView: View {
                     } else {
                         Button("Connect Slack...") { Slack.beginConnect() }
                     }
+                    // The way back in while Slack's own install page is broken.
+                    Button("Paste Slack Token...") {
+                        (NSApp.delegate as? AppDelegate)?.pasteSlackToken()
+                    }
                     Divider()
                 }
                 Toggle("Show in Menu Bar", isOn: Binding(
