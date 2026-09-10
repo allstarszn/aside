@@ -18,7 +18,16 @@ sleep 1
 mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents"
 rm -rf "$DEST"
 cp -R build/Aside.app "$DEST"
-codesign --force --sign - --identifier "$LABEL" "$DEST" >/dev/null 2>&1 || true
+# Re-signed because copying the bundle invalidates the signature. Uses the
+# stable identity when one exists, so the installed copy is the SAME program to
+# macOS as the last one and its permissions carry over.
+source ./signing-id.sh
+IDENTITY="$(aside_signing_identity)"
+if ! codesign --force --sign "$IDENTITY" --identifier "$LABEL" "$DEST" >/dev/null 2>&1; then
+  echo "warning: could not sign with \"$IDENTITY\", falling back to ad-hoc" >&2
+  IDENTITY="-"
+  codesign --force --sign - --identifier "$LABEL" "$DEST" >/dev/null 2>&1 || true
+fi
 
 # KeepAlive with SuccessfulExit false means: come back after a crash, but respect
 # Quit. NSApp.terminate exits cleanly, so quitting really quits.
@@ -47,6 +56,8 @@ done
 
 echo
 echo "Installed to $DEST"
+echo "Signed with:   $IDENTITY"
+[ "$IDENTITY" = "-" ] && echo "  (ad-hoc: run ./signing-setup.sh once to stop the permission prompts returning)"
 echo "Running from:  $(defaults read com.espyagency.aside runningFrom 2>/dev/null || echo unknown)"
 echo "Starts at login and restarts if it crashes."
 echo "To remove it entirely: ./uninstall.sh"

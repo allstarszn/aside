@@ -34,5 +34,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --sign - --identifier com.espyagency.aside "$APP" >/dev/null 2>&1 || true
-echo "Built $APP"
+source ./signing-id.sh
+IDENTITY="$(aside_signing_identity)"
+if ! codesign --force --sign "$IDENTITY" --identifier com.espyagency.aside "$APP" >/dev/null 2>&1; then
+  # A broken identity must not stop a dev build, but it must not be silent
+  # either: signing ad-hoc is exactly what makes the permission prompts return.
+  echo "warning: could not sign with \"$IDENTITY\", falling back to ad-hoc" >&2
+  IDENTITY="-"
+  codesign --force --sign - --identifier com.espyagency.aside "$APP" >/dev/null 2>&1 || true
+fi
+echo "Built $APP (signed: $IDENTITY)"
