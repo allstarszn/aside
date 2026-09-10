@@ -184,13 +184,18 @@ enum Slack {
         var out: [[String: Any]] = []
         var cursor: String?
         repeat {
-            var body: [String: Any] = [
+            /* 🔴 Form-encoded, NOT JSON. Sent as JSON, Slack silently ignores
+               `types` and answers with public channels only: measured on the same
+               account in the same minute, JSON returned 18 conversations and ZERO
+               direct messages while form encoding returned 23 including all 5 DMs.
+               No error either way, which is what made it invisible. */
+            var body: [String: String] = [
                 "types": "public_channel,private_channel,mpim,im",
-                "exclude_archived": true,
-                "limit": 200,
+                "exclude_archived": "true",
+                "limit": "200",
             ]
             if let cursor, !cursor.isEmpty { body["cursor"] = cursor }
-            let response = try call("users.conversations", body: body)
+            let response = try call("users.conversations", form: body)
             out.append(contentsOf: (response["channels"] as? [[String: Any]]) ?? [])
             cursor = (response["response_metadata"] as? [String: Any])?["next_cursor"] as? String
         } while !(cursor ?? "").isEmpty
@@ -310,7 +315,13 @@ enum Slack {
         }
         var histories: [(channel: String, texts: [String])] = []
         for id in try directConversationIDs() {
-            let response = try call("conversations.history", form: ["channel": id, "limit": "20"])
+            /* 🔴 One unreadable conversation must not cost the others their reply
+               box. A real account has DMs that answer `channel_not_found` - a
+               deactivated colleague, an external Slack Connect thread - and
+               letting that throw abandoned the whole index, so every other DM
+               silently lost its reply too. */
+            guard let response = try? call("conversations.history",
+                                           form: ["channel": id, "limit": "20"]) else { continue }
             let texts = ((response["messages"] as? [[String: Any]]) ?? [])
                 .compactMap { $0["text"] as? String }
                 .map(plainText)
