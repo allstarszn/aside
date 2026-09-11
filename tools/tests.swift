@@ -531,6 +531,42 @@ enum Tests {
         check("an abandoned empty draft does not come back",
               !store.notes.contains { $0.url == abandoned })
 
+        print("the app does not reload on its own saves")
+        // 🔴 `ourWrites` was recorded on every save and READ NOWHERE, so each
+        // save came back through the 0.25s watcher looking like somebody
+        // editing in Obsidian and triggered a full reload. That self-inflicted
+        // reload is what made the new-note bug fire on a button that touches
+        // no file at all.
+        store.text = "Guard note\n\nsaved by the app"
+        store.flushSave()
+        check("after its own save the folder looks unchanged", store.folderIsUnchanged())
+
+        // 🔑 The direction that matters MORE. A guard that skips a real edit is
+        // far worse than a wasted reload, so every outside change is checked.
+        let outsider = dir.appendingPathComponent("From Obsidian.md")
+        try? "From Obsidian\n\ntyped elsewhere".write(to: outsider, atomically: true, encoding: .utf8)
+        check("a file created outside the app is seen", !store.folderIsUnchanged())
+        store.reload()
+        check("and the stamp catches up", store.folderIsUnchanged())
+
+        try? "From Obsidian\n\nedited again".write(to: outsider, atomically: true, encoding: .utf8)
+        check("an edit to an existing file is seen", !store.folderIsUnchanged())
+        store.reload()
+
+        try? FileManager.default.removeItem(at: outsider)
+        check("a deletion outside the app is seen", !store.folderIsUnchanged())
+        store.reload()
+        check("the stamp catches up with a deletion", store.folderIsUnchanged())
+
+        // Renaming is the app's own doing too: retitling moves the file.
+        store.text = "Guard note renamed\n\nsaved by the app"
+        store.flushSave()
+        check("a retitle by the app does not look external", store.folderIsUnchanged())
+
+        // And the pencil writes nothing, so it changes nothing.
+        store.newNote()
+        check("the pencil alone changes nothing on disk", store.folderIsUnchanged())
+
         print("pinning and ordering")
         let old = Date(timeIntervalSinceNow: -9000)
         let recent = Date()

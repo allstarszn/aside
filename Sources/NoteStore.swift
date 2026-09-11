@@ -83,9 +83,28 @@ final class NoteStore: ObservableObject {
     private var isLoading = false
     private var saveTimer: Timer?
     private var watcher: FolderWatcher?
-    /// Modification dates this app is responsible for, so its own saves do not
-    /// look like somebody editing the file in Obsidian.
-    private var ourWrites: [URL: Date] = [:]
+    /// Every markdown file in the folder and when it last changed, as this app
+    /// last saw it.
+    ///
+    /// 🔴 This is what `ourWrites` was supposed to be and never was. That
+    /// dictionary was written on every save and READ NOWHERE, so each save
+    /// aside made came back through the watcher 0.25s later looking exactly
+    /// like somebody editing the file in Obsidian, and triggered a full
+    /// reload. That self-inflicted reload is what made the new-note bug fire
+    /// on a button that touches no file at all.
+    ///
+    /// 🔑 A fingerprint of the WHOLE folder rather than a list of our own
+    /// writes, because the watcher is directory level and never says which
+    /// file moved. Anything that does not match is treated as somebody else's
+    /// edit, so the failure direction is a wasted reload, never a missed one.
+    ///
+    /// 🔴 Keyed by FILENAME, not by URL. `contentsOfDirectory` resolves symlinks
+    /// and a URL built with `appendingPathComponent` does not, so the same file
+    /// arrives under two spellings that are not `==` and every save then looked
+    /// external. It is a real path here and not only a test artifact: a Desktop
+    /// synced by iCloud is a symlink. One folder cannot hold two files with the
+    /// same name, so the name is the identity.
+    private var folderStamp: [String: Date] = [:]
     /// The note the pencil just made, which has NO FILE until something is
     /// typed into it.
     ///
@@ -117,7 +136,7 @@ final class NoteStore: ObservableObject {
         try? FileManager.default.createDirectory(at: newDirectory, withIntermediateDirectories: true)
         selectedID = nil
         draftID = nil
-        ourWrites.removeAll()
+        folderStamp.removeAll()
         reload()
         seedWelcomeNoteIfEmpty()
         startWatching()
@@ -128,8 +147,33 @@ final class NoteStore: ObservableObject {
         watcher?.watch(directory)
     }
 
+    /// The folder as it is right now. 🔑 ONE function, used for both the stored
+    /// fingerprint and the comparison, so the two can never drift apart. It
+    /// lists every `.md` whether or not its contents can be read: `reload`
+    /// skips a file it cannot open, and a stamp built from what loaded would
+    /// disagree with this listing forever.
+    private func currentStamp() -> [String: Date] {
+        let found = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles])) ?? []
+        var stamp: [String: Date] = [:]
+        for url in found where url.pathExtension.lowercased() == "md" {
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            stamp[url.lastPathComponent] = values?.contentModificationDate ?? .distantPast
+        }
+        return stamp
+    }
+
+    /// True when the folder is exactly as this app last left it, so a watcher
+    /// event was its own save coming back rather than somebody else's edit.
+    func folderIsUnchanged() -> Bool { currentStamp() == folderStamp }
+
     /// Adopts edits made elsewhere, without ever throwing away what is being typed.
     private func absorbExternalChanges() {
+        // Our own save, echoed back by the watcher. Nothing to adopt.
+        guard !folderIsUnchanged() else { return }
+
         let editing = saveTimer != nil          // a pending save means active typing
         let openNote = selectedID
         let typedText = text
@@ -182,6 +226,11 @@ final class NoteStore: ObservableObject {
 
     /// Re-reads the folder. Keeps unsaved edits to the selected note intact.
     func reload() {
+        // 🔴 Stamped BEFORE the files are read, not after. A write landing
+        // mid-reload would otherwise be stamped as seen while its contents
+        // were never loaded, and the next watcher event would be skipped as
+        // "unchanged". Stamping first costs at most one redundant reload.
+        folderStamp = currentStamp()
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
         let found = (try? fm.contentsOfDirectory(at: directory,
@@ -258,6 +307,7 @@ final class NoteStore: ObservableObject {
         var paths = pinnedPaths
         if paths.remove(id.path) != nil { pinnedPaths = paths }
         notes.removeAll { $0.url == id }
+        folderStamp = currentStamp()
         if draftID == id { draftID = nil }
         if selectedID == id {
             if let first = notes.first { select(first.url) } else { newNote() }
@@ -316,8 +366,14 @@ final class NoteStore: ObservableObject {
             return
         }
 
-        let values = try? target.resourceValues(forKeys: [.contentModificationDateKey])
-        ourWrites[target] = values?.contentModificationDate ?? Date()
+        // 🔴 Re-read the FOLDER, never the date this write appeared to have.
+        // Measured: reading `contentModificationDate` straight after an atomic
+        // write gives a value about a millisecond EARLIER than the one the
+        // folder reports a moment later, because the write lands as a temp file
+        // and a rename. Patching one entry from that early value left the stamp
+        // permanently one millisecond behind, so every save looked external and
+        // the guard did nothing. This also covers a rename for free.
+        folderStamp = currentStamp()
         // It has a file now, so the folder can see it and it needs no carrying.
         if draftID == id { draftID = nil }
         notes[index] = Note(url: target, text: body, modified: Date(),
