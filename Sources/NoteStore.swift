@@ -86,6 +86,18 @@ final class NoteStore: ObservableObject {
     /// Modification dates this app is responsible for, so its own saves do not
     /// look like somebody editing the file in Obsidian.
     private var ourWrites: [URL: Date] = [:]
+    /// The note the pencil just made, which has NO FILE until something is
+    /// typed into it.
+    ///
+    /// 🔴 Tracked by hand because a folder listing cannot see it, and `reload`
+    /// rebuilds the list from the folder. Without this, pressing the pencil
+    /// gave a blank page for a quarter of a second and then snapped back to
+    /// the previous note: `newNote` saves the outgoing note first, that write
+    /// is a folder change, the watcher fires, and the reload it triggers found
+    /// no file for the new note and selected whatever sorted first. The same
+    /// path lost TYPED text, since the first save is 0.6s away and the watcher
+    /// fires at 0.25s.
+    private var draftID: URL?
 
     init(directory: URL) {
         self.directory = directory
@@ -104,6 +116,7 @@ final class NoteStore: ObservableObject {
         UserDefaults.standard.set(newDirectory.path, forKey: "notesDirectory")
         try? FileManager.default.createDirectory(at: newDirectory, withIntermediateDirectories: true)
         selectedID = nil
+        draftID = nil
         ourWrites.removeAll()
         reload()
         seedWelcomeNoteIfEmpty()
@@ -184,6 +197,13 @@ final class NoteStore: ObservableObject {
                                modified: values?.contentModificationDate ?? .distantPast,
                                pinned: pinnedPaths.contains(url.path)))
         }
+        // 🔴 The draft has no file, so the listing above cannot contain it.
+        // Carried across by hand, and only ever the pencil's own note: a file
+        // deleted in Obsidian must still disappear from here.
+        if let id = draftID, selectedID == id, !loaded.contains(where: { $0.url == id }) {
+            loaded.append(Note(url: id, text: text, modified: Date(),
+                               pinned: pinnedPaths.contains(id.path)))
+        }
         loaded.sort(by: Self.ordering)
 
         let previousText = text
@@ -206,6 +226,9 @@ final class NoteStore: ObservableObject {
     func select(_ id: URL) {
         flushSave()
         guard let note = notes.first(where: { $0.url == id }) else { return }
+        // Moving off an empty draft abandons it, so it must not be carried
+        // across the next reload.
+        if id != draftID { draftID = nil }
         isLoading = true
         selectedID = id
         text = note.text
@@ -219,6 +242,7 @@ final class NoteStore: ObservableObject {
         let url = uniqueURL(forBase: "New Note")
         let note = Note(url: url, text: "", modified: Date())
         notes.insert(note, at: 0)
+        draftID = url
         isLoading = true
         selectedID = url
         text = ""
@@ -234,6 +258,7 @@ final class NoteStore: ObservableObject {
         var paths = pinnedPaths
         if paths.remove(id.path) != nil { pinnedPaths = paths }
         notes.removeAll { $0.url == id }
+        if draftID == id { draftID = nil }
         if selectedID == id {
             if let first = notes.first { select(first.url) } else { newNote() }
         }
@@ -293,6 +318,8 @@ final class NoteStore: ObservableObject {
 
         let values = try? target.resourceValues(forKeys: [.contentModificationDateKey])
         ourWrites[target] = values?.contentModificationDate ?? Date()
+        // It has a file now, so the folder can see it and it needs no carrying.
+        if draftID == id { draftID = nil }
         notes[index] = Note(url: target, text: body, modified: Date(),
                             pinned: pinnedPaths.contains(target.path))
         if target != id { selectedID = target }

@@ -467,6 +467,70 @@ enum Tests {
         store.delete(store.selectedID!)
         check("deleting removes the file", !FileManager.default.fileExists(atPath: dir.appendingPathComponent("Shared title 2.md").path))
 
+        print("a new note survives a reload")
+        // 🔴 HIS REPORT: "when i press new note button it give me a blank
+        // notepad for a sec then goes back to the agency to do". `newNote`
+        // saves the OUTGOING note first, that write is a folder change, the
+        // watcher fires 0.25s later, and the reload it triggers rebuilt the
+        // list from the folder. A brand new note has no file there, so it was
+        // dropped and whatever sorted first was selected instead.
+        // An incumbent note, so the test can prove the typing did not land in it.
+        store.text = "Standing note\n\nmust not be overwritten"
+        store.flushSave()
+        store.newNote()
+        let draft = store.selectedID
+        store.reload()
+        check("the pencil's note is still selected after a reload",
+              store.selectedID == draft && draft != nil)
+        check("and it is still in the list", store.notes.contains { $0.url == draft })
+        check("and it is still blank", store.text.isEmpty)
+
+        // Worse than the visible bug: the first save is 0.6s away and the
+        // watcher fires at 0.25s, so a reload landed BEFORE anything typed had
+        // ever reached disk.
+        store.text = "Typed before the first save"
+        store.reload()
+        check("text typed into a new note survives a reload",
+              store.text == "Typed before the first save")
+        check("and the draft is still the selected note", store.selectedID == draft)
+        store.flushSave()
+        check("the draft writes its own file once saved",
+              FileManager.default.fileExists(
+                  atPath: dir.appendingPathComponent("Typed before the first save.md").path))
+        // 🔴 The real hazard, not just a cosmetic snap back: with the draft
+        // dropped, the keystrokes land in whatever note the reload selected
+        // instead, renaming ITS file and taking its text with it.
+        let standing = (try? String(
+            contentsOf: dir.appendingPathComponent("Standing note.md"), encoding: .utf8)) ?? ""
+        check("the note that was open before the pencil is untouched",
+              standing.contains("must not be overwritten"))
+
+        // The other half of the rule: only the pencil's own note is carried.
+        // A note deleted in Obsidian must still disappear from the panel.
+        try? "Deleted elsewhere".write(to: dir.appendingPathComponent("Deleted elsewhere.md"),
+                                       atomically: true, encoding: .utf8)
+        store.reload()
+        // Asked for by NAME, not by a URL built here: the store's own URLs come
+        // from the folder listing and a temp path resolves through /private.
+        let doomed = store.notes.first { $0.url.lastPathComponent == "Deleted elsewhere.md" }?.url
+        check("a file written outside the app appears", doomed != nil)
+        if let doomed {
+            store.select(doomed)
+            check("a file on disk can be selected", store.selectedID == doomed)
+            try? FileManager.default.removeItem(at: doomed)
+            store.reload()
+            check("a note deleted outside the app is not resurrected as a draft",
+                  !store.notes.contains { $0.url == doomed } && store.selectedID != doomed)
+        }
+
+        // Abandoning an empty draft leaves nothing behind.
+        store.newNote()
+        let abandoned = store.selectedID!
+        if let other = store.notes.first(where: { $0.url != abandoned })?.url { store.select(other) }
+        store.reload()
+        check("an abandoned empty draft does not come back",
+              !store.notes.contains { $0.url == abandoned })
+
         print("pinning and ordering")
         let old = Date(timeIntervalSinceNow: -9000)
         let recent = Date()
