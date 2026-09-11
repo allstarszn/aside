@@ -10,6 +10,13 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 ./build.sh
 
+# An older aside started itself with SMAppService. That registration lives in macOS rather
+# than in the code, so 9233f2d deleting the code did not remove it, and every login started a
+# second copy alongside the agent below. Two processes means two menu bar icons. Silent no-op
+# when there is no such item; it needs Automation permission for System Events, so it is
+# allowed to fail rather than block the install.
+osascript -e 'tell application "System Events" to delete (every login item whose path contains "Aside.app")' >/dev/null 2>&1 || true
+
 # Stop whatever is running, through launchd if it owns it.
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
 pkill -f "Aside.app/Contents/MacOS/Aside" 2>/dev/null || true
