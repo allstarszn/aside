@@ -316,7 +316,8 @@ enum Tests {
         // 🔴 "Who last messaged me on iMessage" is a DATABASE question, not a
         // search one. Text search went looking for the word "person", found
         // nothing, and it answered "I couldn't find that information" while the
-        // answer sat one sort away. The snapshot is attached to EVERY question.
+        // answer sat one sort away. The snapshot is attached to every question
+        // ABOUT HIS STUFF, and to no other kind: see "small talk gets no inbox".
         let inboxState = [
             InboxMessage(id: "a", app: "com.apple.mobilesms", title: "Jo", subtitle: "",
                          body: "call me", date: asOf.addingTimeInterval(-600)),
@@ -351,6 +352,48 @@ enum Tests {
         check("a flooded app still only contributes a few lines",
               AskView.snapshot(messages: flood, notes: [], now: asOf)
                   .components(separatedBy: "\n  - ").count - 1 == AskView.perAppRecent)
+
+        print("small talk gets no inbox")
+        // 🔴 THE REGRESSION THIS GUARDS. The snapshot went onto every prompt
+        // without exception, so "hey hows it going" reached the model as a page
+        // of unread counts with a greeting at the bottom, and it answered the
+        // page. Four turns running came back reciting his inbox, one of them in
+        // reply to the word "stop".
+        for chat in ["hey", "hey hows it going", "ok i asked how its going though",
+                     "stop", "whats up", "hi how are you", "thanks man", "lol ok"] {
+            check("small talk, so no inbox: \(chat)", AskView.isSmallTalk(chat))
+            check("and nothing is searched for it: \(chat)",
+                  AskView.find(question: chat, notes: [], messages: inboxState).isEmpty)
+        }
+        // The other half of the rule: a real question must still get the state,
+        // or gating it breaks the database questions it was built for.
+        for real in ["how many unread do i have", "who last messaged me on imessage",
+                     "what did ana say about the build", "anything new from jo"] {
+            check("a real question still gets the inbox: \(real)", !AskView.isSmallTalk(real))
+        }
+        let chatPrompt = AskView.prompt(question: "hey hows it going", context: "",
+                                        history: "", state: "")
+        check("a small talk prompt is the question and nothing else",
+              chatPrompt == "hey hows it going")
+        let fullPrompt = AskView.prompt(question: "how many unread", context: "[1] a passage",
+                                        history: "They asked: x", state: state)
+        check("state leads the prompt", fullPrompt.hasPrefix("What is in aside right now:"))
+        check("the question ends it", fullPrompt.hasSuffix("how many unread"))
+        check("passages are labeled", fullPrompt.contains("Passages from their notes"))
+
+        print("the instructions hand over no answer")
+        // 🔴 The instructions used to carry a worked example, the literal words
+        // "You have three unread", and the model copied the sentence out four
+        // times while the footer said one unread. A sample answer in a prompt
+        // is an answer the model is allowed to give.
+        let told = AskView.instructions.lowercased()
+        let counts = ["one", "two", "three", "four", "five", "no", "0", "1", "2", "3"]
+        let nouns = ["unread", "message", "messages", "note", "notes"]
+        check("no count is written next to a noun it could be copied with",
+              !counts.contains { count in nouns.contains { told.contains("\(count) \($0)") } })
+        check("the model is still told the summary is authoritative",
+              told.contains("authoritative"))
+        check("and told not to recite it", told.contains("do not recite"))
 
         print("display choice")
         let builtIn = ScreenRef(id: 1, name: "Built-in Retina Display")

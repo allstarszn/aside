@@ -57,9 +57,10 @@ struct AskView: View {
     /// "person", found nothing useful, and the model said it could not find
     /// that information while the answer sat one sort away.
     ///
-    /// So this is attached to EVERY question. Grouped per app rather than as
-    /// one recency list, because a question is usually about one app and the
-    /// last iMessage can otherwise be buried under twenty Slack rows.
+    /// So this is attached to every question ABOUT THEIR STUFF. Not to small
+    /// talk: see `isSmallTalk`. Grouped per app rather than as one recency
+    /// list, because a question is usually about one app and the last iMessage
+    /// can otherwise be buried under twenty Slack rows.
     static func snapshot(messages: [InboxMessage], notes: [Note], now: Date = Date()) -> String {
         guard !messages.isEmpty || !notes.isEmpty else { return "" }
         var lines: [String] = []
@@ -117,7 +118,7 @@ struct AskView: View {
     /// 🔴 A prompt that ends in "Them: hey" reads as a transcript, so the model
     /// continues it and answers "Me: hi! What's up?". The prompt no longer ends
     /// that way, and this catches it if the model invents a label anyway.
-    static func clean(_ answer: String) -> String {
+    nonisolated static func clean(_ answer: String) -> String {
         var text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         for label in ["Me:", "You:", "Aside:", "aside:", "Assistant:", "A:"] {
             if text.hasPrefix(label) {
@@ -153,6 +154,16 @@ struct AskView: View {
         "hey", "hi", "hello", "yo", "sup", "thanks", "thank", "please", "ok",
         "okay", "yes", "no", "yeah", "nah", "sure", "cool", "nice", "lol",
         "good", "morning", "evening", "night", "help", "aside",
+        // 🔴 The second wave, measured on him: "hey hows it going" kept two
+        // searchable words, so it searched, matched junk, and was handed the
+        // inbox summary as if he had asked about his inbox.
+        "hows", "whats", "going", "doing", "though", "asked", "asking",
+        "stop", "wait", "serious", "seriously", "us", "really", "actually",
+        "still", "haha", "hah", "hmm", "huh", "yep", "nope", "bye", "later",
+        "welcome", "sorry", "alright", "ever", "even", "much", "lot", "bit",
+        // Address, not subject. A substring search for "man" also matches
+        // manager, Manny and management, so it was never worth running.
+        "man", "bro", "dude", "guys", "mate",
     ]
 
     /// The words worth searching for in a question.
@@ -170,6 +181,19 @@ struct AskView: View {
             word.count >= 3 && !stopWords.contains(word) && seen.insert(word).inserted
         }
     }
+
+    /// Whether this is conversation rather than a question about their stuff.
+    ///
+    /// 🔴 THE BUG THIS EXISTS FOR. The inbox summary used to be attached to
+    /// every question without exception, so "hey hows it going" arrived at the
+    /// model as a page of unread counts and latest messages with two words of
+    /// greeting at the bottom. It answered the page. Four turns in a row came
+    /// back as the same recital of his inbox, including one to "stop".
+    ///
+    /// The test is the one already used to decide whether to search: a question
+    /// made entirely of conversational words has nothing to look up, and
+    /// nothing to look up means it is not about the inbox either.
+    static func isSmallTalk(_ question: String) -> Bool { terms(from: question).isEmpty }
 
     /// Passages for a question: every term searched, ranked by how many of them
     /// a result matched, so a hit on two words beats a hit on one.
@@ -208,6 +232,67 @@ struct AskView: View {
             let clipped = text.count > hitLimit ? String(text.prefix(hitLimit)) + "..." : text
             return "[\(index + 1)] \(hit.source): \(hit.title)\n\(clipped)"
         }.joined(separator: "\n\n")
+    }
+
+    /// What the model is told before every turn.
+    ///
+    /// 🔴 It lives here rather than inside the reader so the suite can read it.
+    /// The version it replaces carried a worked example of a good answer, the
+    /// literal words "You have three unread", and a 3B model on device copied
+    /// the sample sentence straight out: four questions in a row came back
+    /// "You have three unread messages" while the panel's own footer said one.
+    /// A sample answer in a prompt is an answer the model is allowed to give.
+    /// State the rule, never write the sentence.
+    nonisolated static let instructions = """
+    You are aside, an assistant living in a side panel on someone's Mac, beside \
+    their notes and their messages from Slack, iMessage, WhatsApp and Discord.
+
+    Talk normally. If they say hello or make small talk, just reply like a \
+    person would, briefly. If they ask a general question, answer it.
+
+    You are sometimes given a live summary of what is in aside right now: \
+    unread counts, the latest messages per app with who sent them and when, \
+    and their note titles. When it is there it is CURRENT and AUTHORITATIVE, \
+    so answer questions like "who last messaged me on iMessage" or "how many \
+    unread do I have" straight from it, and never say you cannot find \
+    something that is sitting in it.
+
+    Answer only what they actually asked. The summary is reference material, \
+    not your answer: do not recite it, do not volunteer counts or messages \
+    nobody asked about, and never repeat an earlier reply when the new \
+    question is a different question.
+
+    You may also be given passages found by searching their notes and \
+    messages. Use them when they help, and quote the useful part. If they do \
+    not fit the question, ignore them completely and answer anyway. Never \
+    mention that you were given a summary or passages.
+
+    Never invent a name, a date, a number or a message. Every number and every \
+    name you give must be one you can point at in the summary or the passages. \
+    If they ask about something in their notes or messages and neither covers \
+    it, say you could not find it.
+
+    Write in the second person. The notes and the messages are theirs, so they \
+    are what you have, not what you own.
+
+    Keep answers short, two or three sentences unless more is genuinely needed.
+    """
+
+    /// Everything the model is shown for one turn, in order. Pure, so the suite
+    /// can prove small talk arrives with no inbox attached to it.
+    ///
+    /// 🔑 State first when there is state: it is the authoritative answer to
+    /// most simple questions, and burying it under passages makes the model
+    /// reach for the passages instead.
+    nonisolated static func prompt(question: String, context: String, history: String,
+                                   state: String) -> String {
+        var prompt = ""
+        if !state.isEmpty { prompt += state + "\n\n" }
+        if !history.isEmpty { prompt += "Earlier in this conversation:\n\(history)\n\n" }
+        if !context.isEmpty {
+            prompt += "Passages from their notes and messages:\n\(context)\n\n"
+        }
+        return prompt + question
     }
 
     var body: some View {
@@ -315,10 +400,14 @@ struct AskView: View {
                              messages: inbox.visible)
         let used = Array(hits.prefix(Self.maxHits))
         let history = Self.transcript(turns)
-        // Attached to EVERY question, not just when search finds something:
-        // "who last messaged me on iMessage" is answerable from this and never
-        // from a text search.
-        let state = Self.snapshot(messages: inbox.visible, notes: store.notes)
+        // Attached whenever the question is about their stuff, not just when
+        // search finds something: "who last messaged me on iMessage" is
+        // answerable from this and never from a text search. Withheld from
+        // small talk, which is all the model needs to answer the inbox instead
+        // of the person.
+        let state = Self.isSmallTalk(question)
+            ? ""
+            : Self.snapshot(messages: inbox.visible, notes: store.notes)
         let turn = Turn(question: question, answer: nil,
                         sources: used.map { "\($0.source): \($0.title)" })
         turns.append(turn)
@@ -372,34 +461,6 @@ import FoundationModels
 /// is the wrong shape, however good the retrieval underneath is.
 @available(macOS 26, *)
 actor AskReader {
-    private static let instructions = """
-    You are aside, an assistant living in a side panel on someone's Mac, beside \
-    their notes and their messages from Slack, iMessage, WhatsApp and Discord.
-
-    Talk normally. If they say hello or make small talk, just reply like a \
-    person would, briefly. If they ask a general question, answer it.
-
-    You are given a live summary of what is in aside right now: unread counts, \
-    the latest messages per app with who sent them and when, and their note \
-    titles. That summary is CURRENT and AUTHORITATIVE. Answer questions like \
-    "who last messaged me on iMessage" or "how many unread do I have" straight \
-    from it, and never say you cannot find something that is sitting in it.
-
-    You may also be given passages found by searching their notes and messages. \
-    Use them when they help, and quote the useful part. If they do not fit the \
-    question, ignore them completely and answer anyway. Never mention that you \
-    were given a summary or passages.
-
-    Never invent a name, a date, a number or a message that was not in the \
-    passages. If you are asked about something in their notes or messages and \
-    the passages do not cover it, say you could not find it.
-
-    The messages and notes belong to THEM, so say "you" and "your", never "I" \
-    or "my". "You have three unread", not "I don't have any unread messages".
-
-    Keep answers short, two or three sentences unless more is genuinely needed.
-    """
-
     init() throws {}
 
     func answer(question: String, context: String, history: String,
@@ -408,14 +469,9 @@ actor AskReader {
         // A long-lived session grows its transcript until it blows the 4,096
         // token window, which is how the message reader silently died after
         // roughly forty messages.
-        let session = LanguageModelSession(instructions: Self.instructions)
-        var prompt = ""
-        // State first: it is the authoritative answer to most simple questions,
-        // and burying it under passages makes the model reach for the passages.
-        if !state.isEmpty { prompt += state + "\n\n" }
-        if !history.isEmpty { prompt += "Earlier in this conversation:\n\(history)\n\n" }
-        if !context.isEmpty { prompt += "Passages from their notes and messages:\n\(context)\n\n" }
-        prompt += question
+        let session = LanguageModelSession(instructions: AskView.instructions)
+        let prompt = AskView.prompt(question: question, context: context,
+                                    history: history, state: state)
         return AskView.clean(try await session.respond(to: prompt).content)
     }
 }
