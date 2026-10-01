@@ -1215,6 +1215,11 @@ enum Tests {
               Intelligence.instructions(reader: "Alex Doe").contains("reader is Alex."))
 
         print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
+        // One suite per lane of work, each in its own file so lanes never edit
+        // the same lines.
+        ConnectionsTests.run()
+        WhatsAppLinkTests.run()
+        DiscordLinkTests.run()
         return failures
     }
 }

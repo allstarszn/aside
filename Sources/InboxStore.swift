@@ -17,6 +17,10 @@ struct InboxMessage: Identifiable, Codable, Equatable {
     /// rather than sitting there greyed out: a list you have trained yourself to
     /// skip is the same as no list.
     var snoozedUntil: Date? = nil
+    /// The platform's own id for the conversation (a WhatsApp chat JID, a Discord
+    /// channel id). Only set by the Advanced connectors, which can address a chat
+    /// directly. nil on everything read from a macOS notification.
+    var chatID: String? = nil
 
     /// `now` is a parameter so this is testable at any moment rather than only
     /// at whatever time the suite happens to run.
@@ -282,6 +286,26 @@ final class InboxStore: ObservableObject {
         save()
     }
 
+    /// The one door for messages that come from an Advanced connector rather than
+    /// a macOS notification. Same dedupe and cap as every other source, so a
+    /// connector never has to know how the list is kept. Safe from any thread.
+    func ingestExternal(_ incoming: [InboxMessage]) {
+        guard !incoming.isEmpty else { return }
+        DispatchQueue.main.async { [self] in
+            var changed = false
+            for message in incoming {
+                guard !messages.contains(where: { $0.id == message.id || Self.isDuplicate(message, of: $0) })
+                else { continue }
+                messages.append(message)
+                changed = true
+            }
+            guard changed else { return }
+            messages.sort { $0.date > $1.date }
+            if messages.count > maxKept { messages = Array(messages.prefix(maxKept)) }
+            save()
+        }
+    }
+
     /// The same Slack message can arrive twice: once as a macOS notification and
     /// once from the API, with different ids. Same words in the same room at
     /// close to the same moment is the same message.
@@ -333,12 +357,18 @@ final class InboxStore: ObservableObject {
         /// what to call it in the composer, since a resolved DM id reads as
         /// "D08ABC" and nobody knows who that is.
         case slack(channel: String, name: String)
+        /// Advanced connectors address the chat by its own id, so there is nothing
+        /// to verify on screen: the id IS the proof.
+        case whatsappLink(chat: String, name: String)
+        case discord(channel: String, name: String)
 
         var label: String {
             switch self {
             case .imessage(let c): return c.name
             case .whatsapp: return "WhatsApp"
             case .slack(_, let name): return name
+            case .whatsappLink(_, let name): return name
+            case .discord(_, let name): return name
             }
         }
 
@@ -347,6 +377,8 @@ final class InboxStore: ObservableObject {
             case .imessage(let c): return c.service
             case .whatsapp: return "WhatsApp"
             case .slack: return "Slack"
+            case .whatsappLink: return "WhatsApp"
+            case .discord: return "Discord"
             }
         }
     }
@@ -354,6 +386,16 @@ final class InboxStore: ObservableObject {
     /// nil means no reply box. That is deliberate: a guess sends someone's private
     /// message to the wrong person.
     func replyRoute(for message: InboxMessage) -> ReplyRoute? {
+        // An Advanced connector knows the exact chat, so it wins over the
+        // on-screen proof the notification path needs.
+        if AdvancedConnections.enabled, let chat = message.chatID {
+            if message.app == "net.whatsapp.whatsapp" {
+                return .whatsappLink(chat: chat, name: message.title)
+            }
+            if message.app == "com.hnc.discord" || message.app == "com.hnc.Discord" {
+                return .discord(channel: chat, name: message.title)
+            }
+        }
         if message.app == "com.tinyspeck.slackmacgap" {
             // The notification's subtitle is the channel, e.g. "#launch".
             guard Slack.isConnected else { return nil }
@@ -421,6 +463,10 @@ final class InboxStore: ObservableObject {
             try WhatsApp.reply(body, sender: sender, matching: matching)
         case .slack(let channel, _):
             try Slack.post(body, to: channel)
+        case .whatsappLink(let chat, _):
+            try WhatsAppLink.send(body, to: chat)
+        case .discord(let channel, _):
+            try DiscordLink.send(body, to: channel)
         }
     }
 
