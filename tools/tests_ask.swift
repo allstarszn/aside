@@ -97,6 +97,11 @@ enum AskIntentTests {
         Tests.check("the live draft is replaced by a plain acknowledgement",
                     AskIntent.safeDraft("Not sure what you're trying to do, but we just have to get this done before the deadline.",
                                         message: live, thread: []) == "Got it, thanks.")
+        Tests.check("an echo of the message is replaced (the second live draft)",
+                    AskIntent.safeDraft("Live test.", message: live, thread: []) == "Got it, thanks.")
+        Tests.check("an echo is detected", AskIntent.isEcho("Live test.", message: live))
+        Tests.check("a reply that only shares one word is not an echo",
+                    !AskIntent.isEcho("Friday works for me", message: msg(imsg, "Jo Park", "are we on for friday", minutesAgo: 1)))
         Tests.check("a question gets the check-and-get-back fallback",
                     AskIntent.safeDraft("We shipped the invoice yesterday afternoon", message: msg(imsg, "Jo Park", "did the invoice go out?", minutesAgo: 1),
                                         thread: []) == "Let me check and get back to you.")

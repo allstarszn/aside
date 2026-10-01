@@ -185,12 +185,24 @@ enum AskIntent: Equatable {
         return words(draft).allSatisfy { $0.count < 5 || commonReplyWords.contains($0) || known.contains($0) }
     }
 
+    /// 🔴 A draft made only of the message's own words is an echo, not a reply: the
+    /// second live draft for "Live test" was just "Live test." Grounding alone
+    /// accepted it, because every word WAS in the message.
+    static func isEcho(_ draft: String, message: InboxMessage) -> Bool {
+        let said = words(message.body)
+        let mine = words(draft)
+        guard !mine.isEmpty, !said.isEmpty else { return false }
+        let borrowed = mine.filter { said.contains($0) }.count
+        return Double(borrowed) / Double(mine.count) >= 0.9 && mine.count <= said.count + 2
+    }
+
     /// What may actually be shown: the model's draft when it is short and grounded,
     /// otherwise a plain reply chosen by kind.
     static func safeDraft(_ raw: String, message: InboxMessage, thread: [ThreadMessage],
                           speakers: [String] = []) -> String {
         let draft = tidyDraft(raw, speakers: speakers)
-        if draft.isEmpty || draft.count > 200 || !isGrounded(draft, message: message, thread: thread) {
+        if draft.isEmpty || draft.count > 200 || isEcho(draft, message: message)
+            || !isGrounded(draft, message: message, thread: thread) {
             return fallback(for: kind(of: message))
         }
         return draft
