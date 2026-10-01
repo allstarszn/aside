@@ -80,6 +80,33 @@ enum AskIntentTests {
                                            thread: [ThreadMessage(id: "1", text: "hello", date: Date(), fromMe: false, sender: "Jo Park")])
                         .contains("Jo Park: "))
         Tests.check("the instructions say not to start with a name", AskIntent.draftInstructions.contains("Do not start with anyone's name"))
+        // The live draft for "Live test": "...we just have to get this done before the deadline."
+        let live = msg(imsg, "Jo Park", "Live test", minutesAgo: 60)
+        Tests.check("a statement is a statement", AskIntent.kind(of: live) == .statement)
+        Tests.check("a question mark makes it a question",
+                    AskIntent.kind(of: msg(imsg, "Jo Park", "you around?", minutesAgo: 1)) == .question)
+        Tests.check("'can you' makes it a question",
+                    AskIntent.kind(of: msg(imsg, "Jo Park", "can you send it over", minutesAgo: 1)) == .question)
+        Tests.check("an invented deadline is NOT grounded (the live bug)",
+                    !AskIntent.isGrounded("Not sure what you're trying to do, but we just have to get this done before the deadline.",
+                                          message: live, thread: []))
+        Tests.check("plain reply language is grounded",
+                    AskIntent.isGrounded("Sounds good, thanks!", message: live, thread: []))
+        Tests.check("a word the message used is grounded",
+                    AskIntent.isGrounded("Friday works for me", message: msg(imsg, "Jo Park", "are we on for friday", minutesAgo: 1), thread: []))
+        Tests.check("the live draft is replaced by a plain acknowledgement",
+                    AskIntent.safeDraft("Not sure what you're trying to do, but we just have to get this done before the deadline.",
+                                        message: live, thread: []) == "Got it, thanks.")
+        Tests.check("a question gets the check-and-get-back fallback",
+                    AskIntent.safeDraft("We shipped the invoice yesterday afternoon", message: msg(imsg, "Jo Park", "did the invoice go out?", minutesAgo: 1),
+                                        thread: []) == "Let me check and get back to you.")
+        Tests.check("a grounded draft passes through",
+                    AskIntent.safeDraft("\"Jo Park: Sounds good, thanks\"", message: live, thread: [], speakers: ["Jo Park"]) == "Sounds good, thanks")
+        Tests.check("an overlong draft is replaced",
+                    AskIntent.safeDraft(String(repeating: "thanks ", count: 60), message: live, thread: []) == "Got it, thanks.")
+        Tests.check("the prompt tells the model which kind of reply",
+                    AskIntent.draftPrompt(message: live, thread: []).contains("did not ask anything")
+                    && AskIntent.draftPrompt(message: msg(imsg, "Jo Park", "you around?", minutesAgo: 1), thread: []).contains("asked for something"))
         Tests.check("the model's own answers are stripped too", AskView.clean("yes \u{2014} sure") == "yes - sure")
 
         // The reply prompt: the message, the sender, only the recent thread.

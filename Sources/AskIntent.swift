@@ -132,20 +132,87 @@ enum AskIntent: Equatable {
         }
         let history = recent.isEmpty ? "" : "Earlier in this conversation:\n" + recent.joined(separator: "\n") + "\n\n"
         let body = String(message.body.prefix(draftCharLimit))
-        return "\(history)\(sender(message)) just wrote: \(body)\n\nWrite the reply."
+        let how = kind(of: message) == .question
+            ? "They asked for something. Answer only from the conversation, or say you will check and get back to them. One sentence."
+            : "They did not ask anything. Acknowledge it in eight words or fewer. Add no new facts."
+        return "\(history)\(sender(message)) just wrote: \(body)\n\n\(how)\nWrite the reply."
+    }
+
+    // MARK: keeping a draft honest
+
+    enum ReplyKind { case question, statement }
+
+    static let questionOpeners: Set<String> = [
+        "can", "could", "would", "will", "should", "do", "does", "did", "is", "are", "was",
+        "when", "what", "where", "who", "why", "how", "which", "please", "any",
+    ]
+
+    /// Whether the message asks for something. Code decides this, so the model is
+    /// told what KIND of reply to write instead of guessing.
+    static func kind(of message: InboxMessage) -> ReplyKind {
+        let body = message.body.lowercased()
+        if body.contains("?") { return .question }
+        let first = words(body).first ?? ""
+        if questionOpeners.contains(first) { return .question }
+        if body.contains("let me know") || body.contains("can you") || body.contains("could you") { return .question }
+        return .statement
+    }
+
+    static func fallback(for kind: ReplyKind) -> String {
+        switch kind {
+        case .question: return "Let me check and get back to you."
+        case .statement: return "Got it, thanks."
+        }
+    }
+
+    /// Everyday words a reply may use without having been said in the thread.
+    static let commonReplyWords: Set<String> = [
+        "thanks", "thank", "sounds", "great", "check", "later", "sorry", "tomorrow", "today",
+        "moment", "minute", "minutes", "about", "right", "perfect", "awesome", "noted", "there",
+        "happy", "works", "appreciate", "yeah", "sure", "okay", "should", "would", "could",
+        "again", "which", "while", "after", "before", "tonight", "morning", "evening", "weekend",
+        "think", "means", "thing", "things", "something", "anything", "everything", "really",
+    ]
+
+    /// 🔴 The on-device model invents. The first live draft for "Live test" talked
+    /// about a deadline nobody mentioned. A draft may only use a longer word that
+    /// the conversation already contains or that is plain reply language; anything
+    /// else is treated as invented and replaced.
+    static func isGrounded(_ draft: String, message: InboxMessage, thread: [ThreadMessage]) -> Bool {
+        var known = Set(words(message.body))
+        for line in thread { known.formUnion(words(line.text)) }
+        known.formUnion(words(sender(message)))
+        return words(draft).allSatisfy { $0.count < 5 || commonReplyWords.contains($0) || known.contains($0) }
+    }
+
+    /// What may actually be shown: the model's draft when it is short and grounded,
+    /// otherwise a plain reply chosen by kind.
+    static func safeDraft(_ raw: String, message: InboxMessage, thread: [ThreadMessage],
+                          speakers: [String] = []) -> String {
+        let draft = tidyDraft(raw, speakers: speakers)
+        if draft.isEmpty || draft.count > 200 || !isGrounded(draft, message: message, thread: thread) {
+            return fallback(for: kind(of: message))
+        }
+        return draft
     }
 
     /// Tidies what the model returned: no surrounding quotes, no label, no dashes.
     static func tidyDraft(_ raw: String, speakers: [String] = []) -> String {
         var text = plain(AskView.clean(raw))
+        func unquote() {
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            for quote in ["\"", "\u{201C}"] where text.hasPrefix(quote) { text = String(text.dropFirst()) }
+            for quote in ["\"", "\u{201D}"] where text.hasSuffix(quote) { text = String(text.dropLast()) }
+        }
+        // Quotes first: a label inside quotes is still a label.
+        unquote()
         // A reply never starts with the name of someone in the conversation.
         for name in speakers where !name.isEmpty {
             for prefix in ["\(name):", "\(name) -"] where text.lowercased().hasPrefix(prefix.lowercased()) {
                 text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
             }
         }
-        for quote in ["\"", "\u{201C}"] where text.hasPrefix(quote) { text = String(text.dropFirst()) }
-        for quote in ["\"", "\u{201D}"] where text.hasSuffix(quote) { text = String(text.dropLast()) }
+        unquote()
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
