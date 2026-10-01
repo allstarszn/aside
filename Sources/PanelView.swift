@@ -34,6 +34,9 @@ struct PanelView: View {
     /// Mirrored into view state so the menu never reads the keychain while
     /// SwiftUI is drawing. Refreshed when a connection actually changes.
     @State private var slackConnected = false
+    /// Opened from the menu or the empty inbox. Not a rail slot: the rail is
+    /// four on purpose, and this is a screen you visit once, not a surface.
+    @State private var showingConnections = false
 
     /// Read from the shared model so the rail and the panel can never disagree
     /// about which surface is on screen.
@@ -54,6 +57,9 @@ struct PanelView: View {
             Divider().opacity(0.5)
 
             ZStack {
+                if showingConnections {
+                    ConnectionsView(onBack: { showingConnections = false }, inbox: inbox)
+                } else {
                 switch surface {
                 case .notes:
                     ZStack {
@@ -70,10 +76,19 @@ struct PanelView: View {
                     }
                 case .inbox:
                     InboxView(inbox: inbox, onSaveAsNote: saveAsNote)
+                        .overlay(alignment: .bottom) {
+                            if inbox.checkedAt != nil && inbox.canRead
+                                && inbox.visible.isEmpty && inbox.snoozed.isEmpty {
+                                Button("Check connections...") { showingConnections = true }
+                                    .controlSize(.small)
+                                    .padding(.bottom, 14)
+                            }
+                        }
                 case .unread:
                     UnreadView(inbox: inbox, onSaveAsNote: saveAsNote)
                 case .ask:
                     AskView(store: store, inbox: inbox)
+                }
                 }
             }
 
@@ -89,6 +104,7 @@ struct PanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .asideSlackChanged)) { _ in
             slackConnected = Slack.isConnected
         }
+        .onChange(of: surfaces.current) { _, _ in showingConnections = false }
     }
 
     // MARK: - Header
@@ -97,7 +113,7 @@ struct PanelView: View {
         HStack(spacing: 6) {
             IconButton(symbol: "chevron.right", help: "Close", action: onClose)
 
-            Text(surface.rawValue)
+            Text(showingConnections ? "Connections" : surface.rawValue)
                 .font(.system(size: 13, weight: .semibold))
                 .padding(.leading, 2)
 
@@ -455,6 +471,8 @@ struct PanelView: View {
                     }
                     Divider()
                 }
+                Button("Connections...") { showingConnections = true }
+                Divider()
                 Toggle("Show in Menu Bar", isOn: Binding(
                     get: { (NSApp.delegate as? AppDelegate)?.menuBarVisible ?? false },
                     set: { (NSApp.delegate as? AppDelegate)?.setMenuBarVisible($0) }
