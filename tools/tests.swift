@@ -11,6 +11,11 @@ enum Tests {
     }
 
     static func run() -> Int {
+        // 🔴 Before ANYTHING that can reach the keychain. The suite is rebuilt every
+        // run, so macOS sees a new program each time: a read of the real Slack
+        // entry (Slack.isConnected, via replyRoute) costs a password prompt per run.
+        Slack.service = "com.espyagency.aside.slack.tests"
+        defer { Slack.service = "com.espyagency.aside.slack" }
         print("hit testing")
         // The rail is 38 wide and the card now STOPS SHORT of it rather than
         // sliding underneath, so the two never overlap and the rail stays
