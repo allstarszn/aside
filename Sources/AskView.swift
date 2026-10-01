@@ -119,7 +119,7 @@ struct AskView: View {
     /// continues it and answers "Me: hi! What's up?". The prompt no longer ends
     /// that way, and this catches it if the model invents a label anyway.
     nonisolated static func clean(_ answer: String) -> String {
-        var text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = AskIntent.plain(answer).trimmingCharacters(in: .whitespacesAndNewlines)
         for label in ["Me:", "You:", "Aside:", "aside:", "Assistant:", "A:"] {
             if text.hasPrefix(label) {
                 text = String(text.dropFirst(label.count))
@@ -164,6 +164,10 @@ struct AskView: View {
         // Address, not subject. A substring search for "man" also matches
         // manager, Manny and management, so it was never worth running.
         "man", "bro", "dude", "guys", "mate",
+        // Intent, not subject. "person" matched "Personal To DO" in a note title and
+        // buried the real answer under a junk source.
+        "person", "people", "whos", "texted", "texting", "text", "texts", "message",
+        "messages", "messaged", "reply", "replied", "respond",
     ]
 
     /// The words worth searching for in a question.
@@ -396,6 +400,25 @@ struct AskView: View {
         draft = ""
         thinking = true
 
+        // A "last message" question is a fact aside already holds: code answers it.
+        let senders = Array(Set(inbox.visible.map(\.title).filter { !$0.isEmpty }))
+        if case .lastMessage(let app, let from, let wantsReply) = AskIntent.parse(question, knownSenders: senders) {
+            let turn = Turn(question: question, answer: nil, sources: [])
+            turns.append(turn)
+            let id = turn.id
+            Task {
+                let outcome = await lastMessageAnswer(app: app, from: from, wantsReply: wantsReply)
+                await MainActor.run {
+                    if let index = turns.firstIndex(where: { $0.id == id }) {
+                        turns[index].answer = outcome.text
+                        turns[index].failed = outcome.failed
+                    }
+                    thinking = false
+                }
+            }
+            return
+        }
+
         let hits = Self.find(question: question, notes: store.notes,
                              messages: inbox.visible)
         let used = Array(hits.prefix(Self.maxHits))
@@ -427,6 +450,26 @@ struct AskView: View {
                 thinking = false
             }
         }
+    }
+
+    private func lastMessageAnswer(app: String?, from: String?, wantsReply: Bool) async -> (text: String, failed: Bool) {
+        let messages = inbox.visible
+        guard let message = AskIntent.lastMessage(in: messages, app: app, from: from) else {
+            return (AskIntent.nothingFound(app: app, from: from), false)
+        }
+        var text = AskIntent.describe(message)
+        guard wantsReply else { return (text, false) }
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *), Intelligence.isReady {
+            let thread = InboxStore.pooledThread(for: message, in: messages)
+            if let draft = try? await AskReader().draft(message: message, thread: thread), !draft.isEmpty {
+                text += "\n\nA reply you could send: \"\(draft)\""
+                return (text, false)
+            }
+        }
+        #endif
+        text += "\n\nI could not draft a reply just now."
+        return (text, false)
     }
 
     private func answer(question: String, hits: [SearchHit],
@@ -473,6 +516,13 @@ actor AskReader {
         let prompt = AskView.prompt(question: question, context: context,
                                     history: history, state: state)
         return AskView.clean(try await session.respond(to: prompt).content)
+    }
+
+    /// The reply someone could send to `message`. Fresh session, short prompt.
+    func draft(message: InboxMessage, thread: [ThreadMessage]) async throws -> String {
+        let session = LanguageModelSession(instructions: AskIntent.draftInstructions)
+        let prompt = AskIntent.draftPrompt(message: message, thread: thread)
+        return AskIntent.tidyDraft(try await session.respond(to: prompt).content)
     }
 }
 #endif
