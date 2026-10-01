@@ -58,9 +58,12 @@ enum Connectors {
     static var all: [ExternalConnector] { [WhatsAppLink.shared, DiscordLink.shared] }
 
     /// Starts them when the switch is on, stops them when it is off.
-    static func apply() {
-        for connector in all {
-            if AdvancedConnections.enabled { connector.start() } else { connector.stop() }
+    /// The list and the switch are parameters so a test can pass spies and prove
+    /// that a switch that is off calls stop() and never start().
+    static func apply(connectors: [ExternalConnector] = Connectors.all,
+                      enabled: Bool = AdvancedConnections.enabled) {
+        for connector in connectors {
+            if enabled { connector.start() } else { connector.stop() }
         }
     }
 }

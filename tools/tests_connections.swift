@@ -98,6 +98,19 @@ enum ConnectionsTests {
                     Connectors.all.allSatisfy { if case .linking = $0.state { return false }; return true })
         Connectors.all.forEach { $0.state = .off }
 
+        // The part the lane could not reach: spies passed in, so the switch is
+        // proven to call stop() when off and start() when on.
+        final class Spy: ExternalConnector {
+            var starts = 0, stops = 0
+            override func start() { starts += 1 }
+            override func stop() { stops += 1 }
+        }
+        let spyOff = Spy(appName: "Spy"), spyOn = Spy(appName: "Spy")
+        Connectors.apply(connectors: [spyOff], enabled: false)
+        Connectors.apply(connectors: [spyOn], enabled: true)
+        Tests.check("switch off: apply() calls stop() and never start()", spyOff.stops == 1 && spyOff.starts == 0)
+        Tests.check("switch on: apply() calls start() and never stop()", spyOn.starts == 1 && spyOn.stops == 0)
+
         if let dir = ProcessInfo.processInfo.environment["ASIDE_CONNECTIONS_PNG_DIR"] { render(into: dir) }
     }
 

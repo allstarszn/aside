@@ -346,6 +346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inbox.start()
         // Starts WhatsApp and Discord only if the user turned Advanced
         // connections on; otherwise it makes sure they are stopped.
+        WhatsAppLink.shared.onMessages = { [inbox] in inbox.ingestExternal($0) }
+        DiscordLink.shared.onMessages = { [inbox] in inbox.ingestExternal($0) }
         Connectors.apply()
         inbox.$messages
             .receive(on: RunLoop.main)
