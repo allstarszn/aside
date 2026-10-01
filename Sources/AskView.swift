@@ -457,19 +457,9 @@ struct AskView: View {
         guard let message = AskIntent.lastMessage(in: messages, app: app, from: from) else {
             return (AskIntent.nothingFound(app: app, from: from), false)
         }
-        var text = AskIntent.describe(message)
+        let text = AskIntent.describe(message)
         guard wantsReply else { return (text, false) }
-        #if canImport(FoundationModels)
-        if #available(macOS 26, *), Intelligence.isReady {
-            let thread = InboxStore.pooledThread(for: message, in: messages)
-            if let draft = try? await AskReader().draft(message: message, thread: thread), !draft.isEmpty {
-                text += "\n\nA reply you could send: \"\(draft)\""
-                return (text, false)
-            }
-        }
-        #endif
-        text += "\n\nI could not draft a reply just now."
-        return (text, false)
+        return (text + "\n\n" + AskIntent.quickReplyText(for: message), false)
     }
 
     private func answer(question: String, hits: [SearchHit],

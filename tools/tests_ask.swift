@@ -97,6 +97,17 @@ enum AskIntentTests {
         Tests.check("the live draft is replaced by a plain acknowledgement",
                     AskIntent.safeDraft("Not sure what you're trying to do, but we just have to get this done before the deadline.",
                                         message: live, thread: []) == "Got it, thanks.")
+        // The third live draft was the model's own instruction: "They did not ask anything."
+        let statementReplies = AskIntent.quickReplies(for: .statement)
+        let questionReplies = AskIntent.quickReplies(for: .question)
+        Tests.check("a statement gets plain acknowledgements", statementReplies.first == "Got it, thanks." && statementReplies.count == 3)
+        Tests.check("a question gets check-and-get-back replies",
+                    questionReplies.first == "Let me check and get back to you." && questionReplies.count == 3)
+        Tests.check("no quick reply contains an em dash or an instruction word",
+                    (statementReplies + questionReplies).allSatisfy { !$0.contains("\u{2014}") && !$0.lowercased().contains("they did") && $0.count < 45 })
+        Tests.check("the reply text is picked by the kind of the message",
+                    AskIntent.quickReplyText(for: live).contains("Got it, thanks.")
+                    && AskIntent.quickReplyText(for: msg(imsg, "Jo Park", "you around?", minutesAgo: 1)).contains("Let me check and get back to you."))
         Tests.check("an echo of the message is replaced (the second live draft)",
                     AskIntent.safeDraft("Live test.", message: live, thread: []) == "Got it, thanks.")
         Tests.check("an echo is detected", AskIntent.isEcho("Live test.", message: live))

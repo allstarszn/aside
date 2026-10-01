@@ -138,7 +138,27 @@ enum AskIntent: Equatable {
         return "\(history)\(sender(message)) just wrote: \(body)\n\n\(how)\nWrite the reply."
     }
 
-    // MARK: keeping a draft honest
+    // MARK: quick replies, chosen by code
+
+    /// 🔴 The on-device model cannot be trusted to write a reply in someone's name:
+    /// it invented a deadline, then echoed the message, then answered with its own
+    /// instruction ("They did not ask anything."). Until the cloud Smart mode, the
+    /// suggestions are plain, honest replies picked by KIND, never written by a model.
+    static func quickReplies(for kind: ReplyKind) -> [String] {
+        switch kind {
+        case .question:
+            return ["Let me check and get back to you.", "Give me a few minutes on this.", "Can I get back to you shortly?"]
+        case .statement:
+            return ["Got it, thanks.", "Thanks, noted.", "On it."]
+        }
+    }
+
+    static func quickReplyText(for message: InboxMessage) -> String {
+        let lines = quickReplies(for: kind(of: message)).map { "- \($0)" }.joined(separator: "\n")
+        return "Quick replies you could send:\n" + lines
+    }
+
+    // MARK: keeping a model draft honest (kept for the cloud Smart mode, where the same gates apply)
 
     enum ReplyKind { case question, statement }
 
