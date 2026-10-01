@@ -114,22 +114,36 @@ enum AskIntent: Equatable {
     sentences, matching how the thread already sounds. No quotation marks, no \
     explanation, no greeting like "Here is". Never invent a fact, a time, a price \
     or a promise that is not in the conversation: if the reply depends on \
-    something only they know, write a short reply that asks or buys a moment.
+    something only they know, write a short reply that asks or buys a moment. \
+    Do not start with anyone's name or a label. Answer what the message actually \
+    says: do not agree to something that was never asked.
     """
 
+    /// Said again because the first live draft came back as "Brandon Parker: That
+    /// sounds good!": the model copied the "Name: text" shape of the history.
+    static let draftNoLabel = "Do not start with anyone's name or a label."
     static let draftThreadLimit = 6
     static let draftCharLimit = 280
 
     static func draftPrompt(message: InboxMessage, thread: [ThreadMessage]) -> String {
-        let recent = thread.suffix(draftThreadLimit).map { "\($0.sender.isEmpty ? sender(message) : $0.sender): \(String($0.text.prefix(draftCharLimit)))" }
+        // Narrative lines, never "Name: text", which the model copies into its reply.
+        let recent = thread.suffix(draftThreadLimit).map {
+            "\($0.sender.isEmpty ? sender(message) : $0.sender) wrote: \(String($0.text.prefix(draftCharLimit)))"
+        }
         let history = recent.isEmpty ? "" : "Earlier in this conversation:\n" + recent.joined(separator: "\n") + "\n\n"
         let body = String(message.body.prefix(draftCharLimit))
         return "\(history)\(sender(message)) just wrote: \(body)\n\nWrite the reply."
     }
 
     /// Tidies what the model returned: no surrounding quotes, no label, no dashes.
-    static func tidyDraft(_ raw: String) -> String {
+    static func tidyDraft(_ raw: String, speakers: [String] = []) -> String {
         var text = plain(AskView.clean(raw))
+        // A reply never starts with the name of someone in the conversation.
+        for name in speakers where !name.isEmpty {
+            for prefix in ["\(name):", "\(name) -"] where text.lowercased().hasPrefix(prefix.lowercased()) {
+                text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
         for quote in ["\"", "\u{201C}"] where text.hasPrefix(quote) { text = String(text.dropFirst()) }
         for quote in ["\"", "\u{201D}"] where text.hasSuffix(quote) { text = String(text.dropLast()) }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)

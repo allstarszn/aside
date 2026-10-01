@@ -522,7 +522,8 @@ actor AskReader {
     func draft(message: InboxMessage, thread: [ThreadMessage]) async throws -> String {
         let session = LanguageModelSession(instructions: AskIntent.draftInstructions)
         let prompt = AskIntent.draftPrompt(message: message, thread: thread)
-        return AskIntent.tidyDraft(try await session.respond(to: prompt).content)
+        let speakers = [AskIntent.sender(message)] + thread.map(\.sender)
+        return AskIntent.tidyDraft(try await session.respond(to: prompt).content, speakers: speakers)
     }
 }
 #endif

@@ -71,6 +71,15 @@ enum AskIntentTests {
                     AskIntent.plain("a \u{2014} b \u{2013} c") == "a - b - c")
         Tests.check("a draft loses quotes, label and dashes",
                     AskIntent.tidyDraft("Me: \"Running late \u{2014} 10 min\"") == "Running late - 10 min")
+        Tests.check("a draft never starts with the sender's name (the live bug)",
+                    AskIntent.tidyDraft("Jo Park: That sounds good!", speakers: ["Jo Park"]) == "That sounds good!")
+        Tests.check("a draft keeps a colon that is not a name",
+                    AskIntent.tidyDraft("Heads up: running late", speakers: ["Jo Park"]) == "Heads up: running late")
+        Tests.check("the prompt carries no 'Name: text' lines to copy",
+                    !AskIntent.draftPrompt(message: msg("com.apple.mobilesms", "Jo Park", "hi", minutesAgo: 1),
+                                           thread: [ThreadMessage(id: "1", text: "hello", date: Date(), fromMe: false, sender: "Jo Park")])
+                        .contains("Jo Park: "))
+        Tests.check("the instructions say not to start with a name", AskIntent.draftInstructions.contains("Do not start with anyone's name"))
         Tests.check("the model's own answers are stripped too", AskView.clean("yes \u{2014} sure") == "yes - sure")
 
         // The reply prompt: the message, the sender, only the recent thread.
