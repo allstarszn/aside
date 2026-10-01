@@ -25,6 +25,12 @@ sleep 1
 mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents"
 rm -rf "$DEST"
 cp -R build/Aside.app "$DEST"
+# The WhatsApp helper is built from source on the user's Mac the first time Advanced
+# connections is switched on, so its sources live where the app looks for them.
+HELPER_SRC="$HOME/Library/Application Support/aside/src"
+mkdir -p "$HELPER_SRC"
+rm -rf "$HELPER_SRC/helpers"
+cp -R helpers "$HELPER_SRC/helpers"
 # Re-signed because copying the bundle invalidates the signature. Uses the
 # stable identity when one exists, so the installed copy is the SAME program to
 # macOS as the last one and its permissions carry over.
