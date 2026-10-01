@@ -156,6 +156,17 @@ final class ResizeHandle: NSView {
     override func mouseDown(with event: NSEvent) {}
 }
 
+/// One icon on the rail. Decorative: the rail view owns every click.
+///
+/// 🔴 THE REAL CAUSE of "click it twice". The first fix made the rail accept the
+/// first click, but a click lands on the DEEPEST view under the pointer, and that
+/// was this image view, which refuses a first click like any plain NSView. The
+/// icon now hands the click to the rail by not being hit at all.
+final class RailIcon: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 /// The pull tab. Click toggles the drawer, vertical drag repositions it.
 final class TabView: NSView {
     /// 🔴 Without this the FIRST click on the rail only brought the window forward
@@ -184,7 +195,7 @@ final class TabView: NSView {
         wantsLayer = true
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         for surface in Surface.allCases {
-            let view = NSImageView()
+            let view = RailIcon()
             view.image = NSImage(systemSymbolName: surface.symbol,
                                  accessibilityDescription: surface.rawValue)?
                 .withSymbolConfiguration(config)
