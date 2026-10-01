@@ -44,21 +44,26 @@ enum FirstClickTests {
         let panelHit = panelContainer.hitTest(NSPoint(x: 160, y: 160))
         Tests.check("a click inside the panel's content lands on a view that takes the first click",
                     panelHit?.acceptsFirstMouse(for: nil) == true)
-        // The ground is opaque in both themes: no wallpaper, no text from the app
-        // underneath, no glare.
-        for name in [NSAppearance.Name.darkAqua, .aqua] {
-            var alpha = CGFloat(0)
-            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
-                alpha = SolidSurface.ground.usingColorSpace(.sRGB)?.alphaComponent ?? 0
+        // The flat looks are opaque in both themes: no wallpaper, no text from the
+        // app underneath, no glare. Glass has no flat ground by design.
+        for look in [DrawerLook.system, .black] {
+            for name in [NSAppearance.Name.darkAqua, .aqua] {
+                var alpha = CGFloat(0)
+                NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                    alpha = look.ground()?.usingColorSpace(.sRGB)?.alphaComponent ?? 0
+                }
+                Tests.check("the \(look.title) look is fully opaque in \(name == .darkAqua ? "dark" : "light")", alpha == 1)
             }
-            Tests.check("the drawer ground is fully opaque in \(name == .darkAqua ? "dark" : "light")", alpha == 1)
         }
         var darkLuma = CGFloat(1), lightLuma = CGFloat(0)
         NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
-            darkLuma = SolidSurface.ground.usingColorSpace(.sRGB)?.brightnessComponent ?? 1 }
+            darkLuma = DrawerLook.black.ground()?.usingColorSpace(.sRGB)?.brightnessComponent ?? 1 }
         NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
-            lightLuma = SolidSurface.ground.usingColorSpace(.sRGB)?.brightnessComponent ?? 0 }
-        Tests.check("the ground is dark in dark mode and light in light mode", darkLuma < 0.2 && lightLuma > 0.85)
+            lightLuma = DrawerLook.black.ground()?.usingColorSpace(.sRGB)?.brightnessComponent ?? 0 }
+        Tests.check("the black look is black in dark mode and white in light mode", darkLuma < 0.1 && lightLuma > 0.95)
+        Tests.check("the glass look has no flat ground", DrawerLook.glass.effective == .glass ? DrawerLook.glass.ground() == nil : true)
+        Tests.check("the default look is System", UserDefaults.standard.string(forKey: DrawerLook.key) == nil
+                    ? DrawerLook.current == .system : true)
         Tests.check("a plain view does not (so the check can fail)", NSView(frame: .zero).acceptsFirstMouse(for: nil) == false)
     }
 }

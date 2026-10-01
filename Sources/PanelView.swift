@@ -472,6 +472,19 @@ struct PanelView: View {
                     Divider()
                 }
                 Button("Connections...") { showingConnections = true }
+                Menu("Look") {
+                    ForEach(DrawerLook.allCases) { look in
+                        Button {
+                            DrawerLook.current = look
+                        } label: {
+                            if DrawerLook.current == look {
+                                Label(look.title, systemImage: "checkmark")
+                            } else {
+                                Text(look.title)
+                            }
+                        }
+                    }
+                }
                 Divider()
                 Toggle("Show in Menu Bar", isOn: Binding(
                     get: { (NSApp.delegate as? AppDelegate)?.menuBarVisible ?? false },

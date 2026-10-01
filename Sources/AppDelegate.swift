@@ -78,34 +78,36 @@ final class DrawerPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-/// The drawer's ground: opaque, calm, and the same on every desktop.
+/// The drawer's ground, in whichever `DrawerLook` is chosen.
 ///
 /// 🔴 It used to be a translucent blur of whatever sat behind it. Over a busy
 /// window that read as a washed-out glare, and text from the app underneath
-/// showed through the header. The brand already names the colors: Graphite in
-/// dark, Paper in light. A flat ground also lets the content, not the
-/// wallpaper, decide how the panel looks.
+/// showed through the header. The flat looks are opaque on purpose; the glass
+/// look is Apple's own Liquid Glass, kept as one choice among three so the
+/// taste call is made by looking, not by arguing.
 final class SolidSurface: NSView {
-    static let ground = NSColor(name: nil) { appearance in
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return dark
-            ? NSColor(srgbRed: 0x1B / 255, green: 0x19 / 255, blue: 0x16 / 255, alpha: 1)   // Graphite
-            : NSColor(srgbRed: 0xF6 / 255, green: 0xF2 / 255, blue: 0xEA / 255, alpha: 1)   // Paper
-    }
+    private let corner: CGFloat
+    private var glass: NSView?
 
     init(corner: CGFloat) {
+        self.corner = corner
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = corner
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-        layer?.borderWidth = 1
         // Square off the edge that meets the screen bezel.
         layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        NotificationCenter.default.addObserver(self, selector: #selector(lookChanged),
+                                               name: DrawerLook.changed, object: nil)
         refresh()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func lookChanged() { refresh() }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -114,9 +116,25 @@ final class SolidSurface: NSView {
 
     /// CGColors do not follow the appearance on their own, so resolve them here.
     private func refresh() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Self.ground.cgColor
-            layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+        let look = DrawerLook.current.effective
+        if look == .glass, #available(macOS 26, *) {
+            if glass == nil {
+                let view = NSGlassEffectView(frame: bounds)
+                view.autoresizingMask = [.width, .height]
+                view.cornerRadius = corner
+                addSubview(view, positioned: .below, relativeTo: nil)
+                glass = view
+            }
+            layer?.backgroundColor = NSColor.clear.cgColor
+            layer?.borderWidth = 0
+        } else {
+            glass?.removeFromSuperview()
+            glass = nil
+            layer?.borderWidth = 1
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = look.ground()?.cgColor
+                layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+            }
         }
     }
 }
