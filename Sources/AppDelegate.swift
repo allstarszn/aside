@@ -78,9 +78,19 @@ final class DrawerPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
+/// The panel's SwiftUI content. Its buttons need the same first-click rule as the rail.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 /// Transparent full-height container. Only the tab (closed) or the card (open)
 /// takes clicks, so the rest of that screen edge behaves normally.
 final class ContainerView: NSView {
+    /// 🔴 Without this the FIRST click on the rail only brought the window forward
+    /// and was thrown away, so it took two clicks whenever another app was in
+    /// front. The drawer never takes focus from the work underneath, so a click
+    /// has to count the moment it lands.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     weak var tabHost: NSView?
     weak var cardHost: NSView?
     var isExpanded = false
@@ -128,6 +138,11 @@ final class UnreadBadge: NSView {
 
 /// The strip down the drawer's inboard edge that resizes it.
 final class ResizeHandle: NSView {
+    /// 🔴 Without this the FIRST click on the rail only brought the window forward
+    /// and was thrown away, so it took two clicks whenever another app was in
+    /// front. The drawer never takes focus from the work underneath, so a click
+    /// has to count the moment it lands.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     var onDrag: ((NSPoint) -> Void)?
     var onFinish: (() -> Void)?
 
@@ -143,6 +158,11 @@ final class ResizeHandle: NSView {
 
 /// The pull tab. Click toggles the drawer, vertical drag repositions it.
 final class TabView: NSView {
+    /// 🔴 Without this the FIRST click on the rail only brought the window forward
+    /// and was thrown away, so it took two clicks whenever another app was in
+    /// front. The drawer never takes focus from the work underneath, so a click
+    /// has to count the moment it lands.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// Which surface the rail should open. The panel decides what to do when
     /// the slot tapped is already the one on screen.
     var onSelect: ((Surface) -> Void)?
@@ -542,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cardWrap.addSubview(cardBlur)
         cardBlur.autoresizingMask = [.width, .height]
 
-        let hosting = NSHostingView(rootView: PanelView(store: store, inbox: inbox,
+        let hosting = FirstMouseHostingView(rootView: PanelView(store: store, inbox: inbox,
                                                        surfaces: surfaces,
                                                        onClose: { [weak self] in self?.collapse() }))
         hosting.autoresizingMask = [.width, .height]

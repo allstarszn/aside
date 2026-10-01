@@ -1226,6 +1226,7 @@ enum Tests {
         WhatsAppLinkTests.run()
         DiscordLinkTests.run()
         AskIntentTests.run()
+        FirstClickTests.run()
         return failures
     }
 }
