@@ -4,7 +4,7 @@ import AppKit
 /// "modern and sleek" is a taste and three pictures settle it faster than a
 /// paragraph: flip between them in the ellipsis menu and keep the one that feels right.
 enum DrawerLook: String, CaseIterable, Identifiable {
-    /// macOS's own window ground: neutral, cool, and identical to the apps around it.
+    /// macOS's own window ground: neutral, cool, and identical to the apps around it. Where Glass is unavailable.
     case system
     /// Apple's Liquid Glass (macOS 26): translucent, with its own highlights.
     case glass
@@ -24,8 +24,11 @@ enum DrawerLook: String, CaseIterable, Identifiable {
     static let key = "drawerLook"
     static let changed = Notification.Name("asideDrawerLookChanged")
 
+    /// Glass is the look he picked. On a Mac without it, `effective` shows System.
+    static let defaultLook: DrawerLook = .glass
+
     static var current: DrawerLook {
-        get { DrawerLook(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .system }
+        get { DrawerLook(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? defaultLook }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: key)
             NotificationCenter.default.post(name: changed, object: nil)

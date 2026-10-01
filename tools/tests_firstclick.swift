@@ -62,8 +62,10 @@ enum FirstClickTests {
             lightLuma = DrawerLook.black.ground()?.usingColorSpace(.sRGB)?.brightnessComponent ?? 0 }
         Tests.check("the black look is black in dark mode and white in light mode", darkLuma < 0.1 && lightLuma > 0.95)
         Tests.check("the glass look has no flat ground", DrawerLook.glass.effective == .glass ? DrawerLook.glass.ground() == nil : true)
-        Tests.check("the default look is System", UserDefaults.standard.string(forKey: DrawerLook.key) == nil
-                    ? DrawerLook.current == .system : true)
+        Tests.check("the default look is Glass, and it falls back to System where Glass is missing",
+                    DrawerLook.defaultLook == .glass
+                    && (DrawerLook.glassAvailable ? DrawerLook.glass.effective == .glass : DrawerLook.glass.effective == .system))
+        Tests.check("all three looks stay selectable", Set(DrawerLook.allCases) == [.system, .glass, .black])
         Tests.check("a plain view does not (so the check can fail)", NSView(frame: .zero).acceptsFirstMouse(for: nil) == false)
     }
 }
