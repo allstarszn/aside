@@ -78,6 +78,49 @@ final class DrawerPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
+/// The drawer's ground: opaque, calm, and the same on every desktop.
+///
+/// 🔴 It used to be a translucent blur of whatever sat behind it. Over a busy
+/// window that read as a washed-out glare, and text from the app underneath
+/// showed through the header. The brand already names the colors: Graphite in
+/// dark, Paper in light. A flat ground also lets the content, not the
+/// wallpaper, decide how the panel looks.
+final class SolidSurface: NSView {
+    static let ground = NSColor(name: nil) { appearance in
+        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return dark
+            ? NSColor(srgbRed: 0x1B / 255, green: 0x19 / 255, blue: 0x16 / 255, alpha: 1)   // Graphite
+            : NSColor(srgbRed: 0xF6 / 255, green: 0xF2 / 255, blue: 0xEA / 255, alpha: 1)   // Paper
+    }
+
+    init(corner: CGFloat) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = corner
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+        layer?.borderWidth = 1
+        // Square off the edge that meets the screen bezel.
+        layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refresh()
+    }
+
+    /// CGColors do not follow the appearance on their own, so resolve them here.
+    private func refresh() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = Self.ground.cgColor
+            layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+        }
+    }
+}
+
 /// The panel's SwiftUI content. Its buttons need the same first-click rule as the rail.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -630,20 +673,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return view
     }
 
-    private func blurView(corner: CGFloat) -> NSVisualEffectView {
-        let blur = NSVisualEffectView(frame: .zero)
-        blur.material = .popover
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = corner
-        blur.layer?.cornerCurve = .continuous
-        blur.layer?.masksToBounds = true
-        blur.layer?.borderWidth = 1
-        blur.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        // Square off the edge that meets the screen bezel.
-        blur.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        return blur
+    private func blurView(corner: CGFloat) -> SolidSurface {
+        SolidSurface(corner: corner)
     }
 
     // MARK: Geometry
