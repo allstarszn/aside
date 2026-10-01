@@ -34,11 +34,11 @@ struct ConnectionRow: Equatable, Identifiable {
 }
 
 enum ConnectionsLogic {
-    static let advancedWarning = "WhatsApp and Discord do not offer a way to connect a personal account. Advanced connections talk to them the way their own web apps do. That is against their rules, and either company could restrict the account you connect. Everything stays on your Mac."
+    static let advancedWarning = "WhatsApp does not offer a way to connect a personal account. Advanced connections talk to it the way its own web app does. That is against WhatsApp's rules, and the company could restrict the account you connect. Everything stays on your Mac."
 
     static let qrInstruction = "Open WhatsApp, Linked devices, Link a device, and scan this."
 
-    /// The WhatsApp and Discord rows exist only while the switch is on: showing
+    /// The WhatsApp row exists only while the switch is on: showing
     /// a "Link" button for something the warning has not been accepted for would
     /// be the switch in name only.
     static func rows(_ s: ConnectionsSnapshot) -> [ConnectionRow] {
@@ -66,10 +66,15 @@ enum ConnectionsLogic {
             ConnectionRow(id: "notifications", title: "Notifications",
                           status: "WhatsApp, Discord and Slack must have notifications on, or the plain inbox stays empty.",
                           level: .info, buttonTitle: nil, fix: nil, qrPayload: nil),
+            // Discord refuses to draw its sign-in page inside another app, so there
+            // is nothing to link. Said plainly rather than leaving a button that
+            // opens a blank window.
+            ConnectionRow(id: "discord", title: "Discord",
+                          status: "Notifications still arrive, and a click opens the exact message. Replying from aside is not available yet: Discord blocks sign-in from inside other apps.",
+                          level: .info, buttonTitle: nil, fix: nil, qrPayload: nil),
         ]
         if s.advancedEnabled {
             rows.append(connectorRow(id: "whatsApp", title: "WhatsApp", state: s.whatsApp, appName: "WhatsApp", showsQR: true))
-            rows.append(connectorRow(id: "discord", title: "Discord", state: s.discord, appName: "Discord", showsQR: false))
         }
         return rows
     }

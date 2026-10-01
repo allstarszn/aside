@@ -16,16 +16,17 @@ enum ConnectionsTests {
     static func run() {
         print("connections")
 
-        // Switch off: the two Advanced rows must not exist, even if a connector
-        // is mid-link, and the five plain rows always do.
+        // Switch off: the WhatsApp row must not exist, even if a connector is
+        // mid-link, and the six plain rows always do.
         let off = ConnectionsLogic.rows(snap(advanced: false, wa: .linking("qr:abc"), dc: .connected("x")))
         Tests.check("switch off: no WhatsApp row", !off.contains { $0.id == "whatsApp" })
-        Tests.check("switch off: no Discord row", !off.contains { $0.id == "discord" })
-        Tests.check("five plain rows always present",
-                    off.map(\.id) == ["fullDisk", "accessibility", "slack", "imessage", "notifications"])
+        Tests.check("Discord is a plain row with no button and no fix",
+                    off.first { $0.id == "discord" }.map { $0.buttonTitle == nil && $0.fix == nil && $0.level == .info } == true)
+        Tests.check("six plain rows always present",
+                    off.map(\.id) == ["fullDisk", "accessibility", "slack", "imessage", "notifications", "discord"])
         let on = ConnectionsLogic.rows(snap(advanced: true))
-        Tests.check("switch on: WhatsApp and Discord rows appear last",
-                    on.suffix(2).map(\.id) == ["whatsApp", "discord"])
+        Tests.check("switch on: the WhatsApp row appears last",
+                    on.last?.id == "whatsApp" && on.count == off.count + 1)
 
         // Green and red, with the button that fixes each.
         let fdRed = row(snap(read: false), "fullDisk")!
@@ -52,8 +53,8 @@ enum ConnectionsTests {
         Tests.check("failed is red and shows why", wa(.failed("helper missing")).level == .needsAttention
                     && wa(.failed("helper missing")).status == "helper missing")
         Tests.check("needsSetup shows the instruction", wa(.needsSetup("Install the helper")).status == "Install the helper")
-        Tests.check("Discord links through Discord",
-                    row(snap(advanced: true), "discord")?.fix == .link("Discord"))
+        Tests.check("Discord offers no link button even with the switch on",
+                    row(snap(advanced: true), "discord")?.fix == nil && row(snap(advanced: true), "discord")?.buttonTitle == nil)
 
         // QR contract: only "qr:<payload>" is a code, and only for WhatsApp.
         Tests.check("qr payload parsed", ConnectionsLogic.qrPayload(from: "qr:2@abc,def") == "2@abc,def")
