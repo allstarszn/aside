@@ -55,7 +55,11 @@ final class DiscordLink: ExternalConnector {
     // MARK: connector
 
     override func link() {
-        let window = DiscordLoginWindow { [weak self] token in self?.loggedIn(with: token) }
+        let window = DiscordLoginWindow(
+            onToken: { [weak self] token in self?.loggedIn(with: token) },
+            onProblem: { [weak self] message in
+                self?.setState(.failed("Discord login: \(message). Close the window and try again."))
+            })
         login = window
         setState(.linking("Log in to Discord in the window that opened"))
         window.show()
