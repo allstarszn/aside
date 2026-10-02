@@ -1159,6 +1159,7 @@ enum Tests {
         AskIntentTests.run()
         FirstClickTests.run()
         SmartTests.run()
+        MigrationTests.run()
         return failures
     }
 }
