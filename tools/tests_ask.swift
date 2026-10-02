@@ -9,6 +9,11 @@ enum AskIntentTests {
                      date: Date(timeIntervalSinceNow: -minutesAgo * 60))
     }
 
+    static func snapshot(key: Bool) -> ConnectionsSnapshot {
+        ConnectionsSnapshot(canReadInbox: true, accessibilityTrusted: true, slackConnected: true, advancedEnabled: false,
+                            whatsApp: .off, discord: .off, smartKeySet: key)
+    }
+
     static func run() {
         print("ask intent")
         let imsg = "com.apple.mobilesms", slack = "com.tinyspeck.slackmacgap"

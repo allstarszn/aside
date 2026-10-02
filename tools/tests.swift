@@ -1227,6 +1227,7 @@ enum Tests {
         DiscordLinkTests.run()
         AskIntentTests.run()
         FirstClickTests.run()
+        SmartTests.run()
         return failures
     }
 }

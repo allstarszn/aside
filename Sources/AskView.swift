@@ -17,6 +17,7 @@ struct AskView: View {
     @State private var draft = ""
     @State private var turns: [Turn] = []
     @State private var thinking = false
+    @State private var smartOn = false
 
     struct Turn: Identifiable, Equatable {
         let id = UUID()
@@ -301,7 +302,7 @@ struct AskView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let reason = Intelligence.status.explanation {
+            if let reason = Intelligence.status.explanation, !smartOn {
                 unavailable(reason)
             } else {
                 thread
@@ -310,6 +311,9 @@ struct AskView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 🔴 Mirrored into state here, never read in the body: a redraw that
+        // reached the Keychain would be a password prompt per publish.
+        .onAppear { smartOn = SmartKey.isSet }
     }
 
     private var thread: some View {
@@ -350,7 +354,9 @@ struct AskView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("Ask about anything in here")
                 .font(.system(size: 13, weight: .medium))
-            Text("Your notes and every message from Slack, iMessage, WhatsApp and Discord. Nothing leaves your Mac.")
+            Text(smartOn
+                 ? "Your notes and every message from Slack, iMessage, WhatsApp and Discord. Smart answers is on: short snippets of what it looks up are sent to Anthropic with your own key."
+                 : "Your notes and every message from Slack, iMessage, WhatsApp and Discord. Nothing leaves your Mac.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -400,17 +406,101 @@ struct AskView: View {
         draft = ""
         thinking = true
 
+        // A key means the Smart path. No key: today's behavior, untouched.
+        if SmartKey.isSet {
+            askSmart(question)
+        } else {
+            askLocally(question, turnID: nil, note: nil)
+        }
+    }
+
+    /// The cloud brain. Any failure shows a plain message and falls back to the
+    /// on-device path for this same question, so a dead network never leaves an
+    /// empty answer.
+    private func askSmart(_ question: String) {
+        let messages = inbox.visible
+        let notes = store.notes
+        let history = Self.transcript(turns)
+        let senders = Array(Set(messages.map(\.title).filter { !$0.isEmpty }))
+        let intent = AskIntent.parse(question, knownSenders: senders)
+        let turn = Turn(question: question, answer: nil, sources: [])
+        turns.append(turn)
+        let id = turn.id
+        let toolbox = SmartToolbox(messages: messages, notes: notes, loadThread: { await loadThread($0) })
+
+        Task {
+            do {
+                let client = AnthropicClient()
+                var outcome: SmartAgent.Outcome
+                if case .lastMessage(let app, let from, let wantsReply) = intent {
+                    // Finding the newest message is a fact the code holds. The
+                    // model only writes the reply, and only when one is asked for.
+                    guard let message = AskIntent.lastMessage(in: messages, app: app, from: from) else {
+                        await finish(id, SmartAgent.Outcome(text: AskIntent.nothingFound(app: app, from: from), sources: []))
+                        return
+                    }
+                    outcome = SmartAgent.Outcome(text: AskIntent.describe(message), sources: [])
+                    if wantsReply {
+                        let thread = await loadThread(message)
+                        let reply = try await SmartDraft.draft(message: message, thread: thread, client: client)
+                        outcome.text += "\n\nA reply you could send:\n" + reply
+                    }
+                } else {
+                    outcome = try await SmartAgent.answer(question: question, history: history,
+                                                          toolbox: toolbox, client: client)
+                }
+                await finish(id, outcome)
+            } catch {
+                SmartLog.line("ask failed: \(error.localizedDescription)")
+                let why = SmartKey.redact(error.localizedDescription)
+                await MainActor.run {
+                    askLocally(question, turnID: id,
+                               note: "Smart answers did not work: \(why) Using this Mac instead.")
+                }
+            }
+        }
+    }
+
+    private func finish(_ id: UUID, _ outcome: SmartAgent.Outcome) async {
+        await MainActor.run {
+            if let index = turns.firstIndex(where: { $0.id == id }) {
+                turns[index].answer = outcome.text
+                turns[index].sources = outcome.sources
+            }
+            thinking = false
+        }
+    }
+
+    /// The real back and forth for one message, wherever it can be read from.
+    private func loadThread(_ message: InboxMessage) async -> [ThreadMessage] {
+        let source = await MainActor.run { inbox.threadSource(for: message) }
+        switch source {
+        case .imessage(let conversation):
+            return IMessage.messages(in: conversation.handle)
+        case .slack(let channel, let body):
+            if let found = try? Slack.resolveConversation(channel: channel, body: body),
+               let history = try? Slack.history(channel: found) { return history }
+            return await MainActor.run { inbox.pooledThread(for: message) }
+        case .pooled:
+            return await MainActor.run { inbox.pooledThread(for: message) }
+        }
+    }
+
+    /// On this Mac only: retrieval plus plain quick replies. `turnID` is set when
+    /// Smart answers failed and this is finishing the same turn, with `note`
+    /// saying why.
+    private func askLocally(_ question: String, turnID: UUID?, note: String?) {
+        let lead = note.map { $0 + "\n\n" } ?? ""
+
         // A "last message" question is a fact aside already holds: code answers it.
         let senders = Array(Set(inbox.visible.map(\.title).filter { !$0.isEmpty }))
         if case .lastMessage(let app, let from, let wantsReply) = AskIntent.parse(question, knownSenders: senders) {
-            let turn = Turn(question: question, answer: nil, sources: [])
-            turns.append(turn)
-            let id = turn.id
+            let id = startTurn(question, reuse: turnID)
             Task {
                 let outcome = await lastMessageAnswer(app: app, from: from, wantsReply: wantsReply)
                 await MainActor.run {
                     if let index = turns.firstIndex(where: { $0.id == id }) {
-                        turns[index].answer = outcome.text
+                        turns[index].answer = lead + outcome.text
                         turns[index].failed = outcome.failed
                     }
                     thinking = false
@@ -431,17 +521,14 @@ struct AskView: View {
         let state = Self.isSmallTalk(question)
             ? ""
             : Self.snapshot(messages: inbox.visible, notes: store.notes)
-        let turn = Turn(question: question, answer: nil,
-                        sources: used.map { "\($0.source): \($0.title)" })
-        turns.append(turn)
-        let id = turn.id
+        let id = startTurn(question, reuse: turnID, sources: used.map { "\($0.source): \($0.title)" })
 
         Task {
             let outcome = await answer(question: question, hits: used,
                                        history: history, state: state)
             await MainActor.run {
                 if let index = turns.firstIndex(where: { $0.id == id }) {
-                    turns[index].answer = outcome.text
+                    turns[index].answer = lead + outcome.text
                     turns[index].failed = outcome.failed
                     if outcome.failed { turns[index].sources = [] }
                     // Nothing was searched, so nothing should be credited.
@@ -450,6 +537,16 @@ struct AskView: View {
                 thinking = false
             }
         }
+    }
+
+    private func startTurn(_ question: String, reuse: UUID?, sources: [String] = []) -> UUID {
+        if let reuse {
+            if let index = turns.firstIndex(where: { $0.id == reuse }) { turns[index].sources = sources }
+            return reuse
+        }
+        let turn = Turn(question: question, answer: nil, sources: sources)
+        turns.append(turn)
+        return turn.id
     }
 
     private func lastMessageAnswer(app: String?, from: String?, wantsReply: Bool) async -> (text: String, failed: Bool) {
