@@ -120,6 +120,14 @@ final class NoteStore: ObservableObject {
     /// fires at 0.25s.
     private var draftID: URL?
 
+    /// The only place notes live: inside aside's own support folder, as plain
+    /// markdown files so the Smart answers notes tools read them unchanged.
+    static func privateDirectory(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        home.appendingPathComponent("Library/Application Support/aside/notes", isDirectory: true)
+    }
+
     init(directory: URL) {
         self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

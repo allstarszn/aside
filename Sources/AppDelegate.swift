@@ -465,13 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Notes location
 
-    static func notesDirectory() -> URL {
-        if let chosen = UserDefaults.standard.string(forKey: "notesDirectory") {
-            return URL(fileURLWithPath: (chosen as NSString).expandingTildeInPath)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/Aside", isDirectory: true)
-    }
+    /// Notes live in one private place and nowhere else.
+    static func notesDirectory() -> URL { NoteStore.privateDirectory() }
 
     /// Lets the user put their notes anywhere, including inside a notes vault.
     var menuBarVisible: Bool { menuBar != nil }
