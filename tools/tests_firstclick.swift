@@ -69,3 +69,56 @@ enum FirstClickTests {
         Tests.check("a plain view does not (so the check can fail)", NSView(frame: .zero).acceptsFirstMouse(for: nil) == false)
     }
 }
+
+/// The rail's icons are plain system-colored images, so they only stay readable
+/// over a bright or dark window if Liquid Glass can adapt them. That needs them
+/// INSIDE the glass view; a sibling on top keeps the system label colors, which
+/// went pale on a pale glass and made the rail look empty.
+enum RailGlassTests {
+    private static func glassView(in surface: NSView) -> NSView? {
+        guard #available(macOS 26, *) else { return nil }
+        return surface.subviews.first { $0 is NSGlassEffectView }
+    }
+
+    static func run() {
+        print("rail over bright and dark windows")
+        let saved = UserDefaults.standard.string(forKey: DrawerLook.key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: DrawerLook.key) }
+            else { UserDefaults.standard.removeObject(forKey: DrawerLook.key) }
+        }
+        let size = NSRect(x: 0, y: 0, width: Layout.tabWidth, height: Layout.tabHeight)
+
+        DrawerLook.current = .system
+        let surface = SolidSurface(corner: Layout.tabCorner)
+        surface.frame = size
+        let tab = TabView(frame: size)
+        surface.place(tab)
+        Tests.check("on the System look the rail sits directly on the surface", tab.superview === surface)
+
+        DrawerLook.current = .black
+        Tests.check("on the Black look the rail sits directly on the surface", tab.superview === surface)
+
+        DrawerLook.current = .glass
+        if DrawerLook.glassAvailable {
+            let glass = glassView(in: surface)
+            Tests.check("on the Glass look there is a glass view", glass != nil)
+            Tests.check("on the Glass look the rail is inside the glass, not on top of it",
+                        glass != nil && tab.isDescendant(of: glass!) && tab.superview !== surface)
+            Tests.check("the rail keeps its size inside the glass",
+                        abs(tab.frame.width - Layout.tabWidth) < 0.5 && abs(tab.frame.height - Layout.tabHeight) < 0.5)
+            Tests.check("the rail still takes the first click inside the glass", tab.acceptsFirstMouse(for: nil))
+        } else {
+            Tests.check("without Glass the rail sits directly on the surface", tab.superview === surface)
+        }
+
+        DrawerLook.current = .system
+        Tests.check("leaving Glass puts the rail back on the surface", tab.superview === surface)
+        Tests.check("leaving Glass removes the glass view", glassView(in: surface) == nil)
+        DrawerLook.current = .glass
+        Tests.check("returning to Glass moves the rail inside it again",
+                    !DrawerLook.glassAvailable || (glassView(in: surface).map { tab.isDescendant(of: $0) } ?? false))
+        Tests.check("a rail never placed on the surface is not inside any glass (so the check can fail)",
+                    !TabView(frame: size).isDescendant(of: surface))
+    }
+}

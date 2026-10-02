@@ -88,6 +88,10 @@ final class DrawerPanel: NSPanel {
 final class SolidSurface: NSView {
     private let corner: CGFloat
     private var glass: NSView?
+    /// Content that must live INSIDE the glass so Liquid Glass adapts it to the
+    /// pixels behind: a plain subview keeps the system colors, which stay light on
+    /// a pale glass over a bright window and the icons vanish. The rail uses this.
+    private weak var glassContent: NSView?
 
     init(corner: CGFloat) {
         self.corner = corner
@@ -109,6 +113,12 @@ final class SolidSurface: NSView {
 
     @objc private func lookChanged() { refresh() }
 
+    /// Adds `content` on top of the ground, inside the glass whenever the glass look is on.
+    func place(_ content: NSView) {
+        glassContent = content
+        refresh()
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()
@@ -125,11 +135,23 @@ final class SolidSurface: NSView {
                 addSubview(view, positioned: .below, relativeTo: nil)
                 glass = view
             }
+            if let content = glassContent, let view = glass as? NSGlassEffectView,
+               view.contentView !== content {
+                view.contentView = content
+            }
             layer?.backgroundColor = NSColor.clear.cgColor
             layer?.borderWidth = 0
         } else {
+            if #available(macOS 26, *), let view = glass as? NSGlassEffectView {
+                view.contentView = nil
+            }
             glass?.removeFromSuperview()
             glass = nil
+            if let content = glassContent, content.superview !== self {
+                content.frame = bounds
+                content.autoresizingMask = [.width, .height]
+                addSubview(content)
+            }
             layer?.borderWidth = 1
             effectiveAppearance.performAsCurrentDrawingAppearance {
                 layer?.backgroundColor = look.ground()?.cgColor
@@ -642,7 +664,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tab.onDrag = { [weak self] pointer in self?.dragTab(to: pointer) }
         tab.onDropText = { [weak self] text in self?.captureDroppedText(text) }
         tabView = tab
-        tabBlur.addSubview(tab)
+        tabBlur.place(tab)
 
         // Added to the shadow wrapper, not the blur: that wrapper does not clip,
         // which is what lets the dot overhang the corner.

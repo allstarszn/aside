@@ -1158,6 +1158,7 @@ enum Tests {
         DiscordLinkTests.run()
         AskIntentTests.run()
         FirstClickTests.run()
+        RailGlassTests.run()
         SmartTests.run()
         MigrationTests.run()
         return failures
