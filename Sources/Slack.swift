@@ -246,12 +246,15 @@ enum Slack {
         case empty
         case unknownChannel(String)
         case api(String)
+        /// HTTP 429. Carries Slack's Retry-After, in seconds.
+        case rateLimited(Int)
 
         var errorDescription: String? {
             switch self {
             case .notConnected: return "Connect Slack first."
             case .empty: return "Nothing to send."
             case .unknownChannel(let name): return "Could not find the channel \(name) in Slack."
+            case .rateLimited: return "Slack is rate limiting. Try again shortly."
             case .api(let code):
                 switch code {
                 case "invalid_auth", "token_revoked", "account_inactive":
@@ -289,8 +292,41 @@ enum Slack {
         return try perform(request)
     }
 
+    /* 🔴 Slack limits each METHOD separately and answers 429 with a Retry-After.
+       Docs: https://docs.slack.dev/apis/web-api/rate-limits . For apps distributed
+       outside the Marketplace, conversations.history is held to 1 request a minute
+       and 15 messages a call (https://docs.slack.dev/reference/methods/conversations.history),
+       so a burst of one call per conversation is refused after the first.
+       Once told to wait, no request for that method leaves until the time is up. */
+    private static var backoffUntil: [String: Date] = [:]
+    private static let backoffLock = NSLock()
+
+    static func noteRateLimit(method: String, retryAfter: Int, now: Date = Date()) {
+        backoffLock.lock(); defer { backoffLock.unlock() }
+        backoffUntil[method] = now.addingTimeInterval(Double(min(max(retryAfter, 1), 3600)))
+    }
+
+    /// Throws `rateLimited` with the seconds left while the method is still cooling off.
+    static func checkBackoff(method: String, now: Date = Date()) throws {
+        backoffLock.lock(); defer { backoffLock.unlock() }
+        guard let until = backoffUntil[method], until > now else { return }
+        throw SlackError.rateLimited(Int(until.timeIntervalSince(now).rounded(.up)))
+    }
+
+    static func resetBackoff() {
+        backoffLock.lock(); defer { backoffLock.unlock() }
+        backoffUntil.removeAll()
+    }
+
+    /// Slack's Retry-After header as whole seconds; 30 when it is missing or unreadable.
+    static func retryAfterSeconds(_ header: String?) -> Int {
+        guard let header, let seconds = Int(header.trimmingCharacters(in: .whitespaces)), seconds > 0 else { return 30 }
+        return seconds
+    }
+
     private static func base(_ method: String) throws -> URLRequest {
         guard let token = token() else { throw SlackError.notConnected }
+        try checkBackoff(method: method)
         guard let url = URL(string: "https://slack.com/api/\(method)") else {
             throw SlackError.api("bad_url")
         }
@@ -308,9 +344,15 @@ enum Slack {
         var result: [String: Any] = [:]
         var failure: Error?
         let done = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { data, _, error in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             defer { done.signal() }
             if let error { failure = error; return }
+            if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+                let wait = retryAfterSeconds(http.value(forHTTPHeaderField: "Retry-After"))
+                noteRateLimit(method: request.url?.lastPathComponent ?? "", retryAfter: wait)
+                failure = SlackError.rateLimited(wait)
+                return
+            }
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 failure = SlackError.api("bad_response")

@@ -57,6 +57,9 @@ extension Slack {
         "channel_topic", "channel_purpose", "channel_name",
     ]
 
+    /// Where the next poll starts reading, so a rate limit never starves the same conversations.
+    static var rotation = 0
+
     /// Everything unread across every conversation, as inbox rows.
     /* 🔴 `perConversation` is a real ceiling, stated rather than silent. Slack
        answers newest-first, so fetching N and then advancing the watermark past
@@ -65,12 +68,24 @@ extension Slack {
        shape of the row-cap bug this codebase keeps finding. 50 clears every real
        case here; beyond it aside deliberately shows the newest 50 of a
        conversation rather than pretending to show all of them. */
-    static func unread(watermarks: [String: Double], perConversation: Int = 50) throws -> Unread {
+    /* 🔴 Slack now caps conversations.history at 15 messages for apps outside the
+       Marketplace, so asking for more returns 15 anyway. The default is the real
+       number rather than a larger one that would be silently cut. */
+    static func unread(watermarks: [String: Double], perConversation: Int = 15) throws -> Unread {
         let me = (try? myUserID()) ?? ""
         var rows: [InboxMessage] = []
         var marks = watermarks
 
-        for entry in try conversationEntries() {
+        /* 🔴 History is limited to about one call a minute, so a poll cannot read
+           every conversation. It reads until Slack says wait, keeps what it got
+           (watermarks only advance for conversations actually read), and the next
+           poll starts where this one stopped so none is starved. */
+        let entries = try conversationEntries()
+        let first = entries.isEmpty ? 0 : rotation % entries.count
+        let ordered = Array(entries[first...] + entries[..<first])
+        var stoppedAt: Int?
+
+        for (position, entry) in ordered.enumerated() {
             guard let id = entry["id"] as? String else { continue }
 
             // One unreadable conversation must never cost the others, the same way
@@ -81,10 +96,16 @@ extension Slack {
             let start = cutoff(lastRead: lastRead, watermark: watermarks[id])
             guard start > 0 else { continue }
 
-            guard let history = try? call("conversations.history",
-                                          form: ["channel": id,
-                                                 "oldest": String(start),
-                                                 "limit": String(perConversation)]) else { continue }
+            let history: [String: Any]
+            do {
+                history = try call("conversations.history",
+                                   form: ["channel": id,
+                                          "oldest": String(start),
+                                          "limit": String(perConversation)])
+            } catch SlackError.rateLimited {
+                stoppedAt = position
+                break
+            } catch { continue }
             let raw = ((history["messages"] as? [[String: Any]]) ?? []).map {
                 RawMessage(ts: Double($0["ts"] as? String ?? "") ?? 0,
                            text: $0["text"] as? String ?? "",
@@ -107,6 +128,7 @@ extension Slack {
             }
             marks[id] = max(marks[id] ?? 0, fresh.map { $0.ts }.max() ?? 0)
         }
+        if let stoppedAt { rotation = (first + stoppedAt) % max(entries.count, 1) }
         return Unread(messages: rows, watermarks: marks)
     }
 }

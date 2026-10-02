@@ -1144,6 +1144,24 @@ enum Tests {
         check("with no known user id, nothing is dropped as his",
               Slack.selectUnread(feed, cutoff: 150, me: "").contains { $0.text == "mine" })
 
+        // Slack answers 429 with a Retry-After; nothing may go out for that method until it passes.
+        check("Retry-After is read as seconds", Slack.retryAfterSeconds("42") == 42)
+        check("a missing Retry-After falls back to 30", Slack.retryAfterSeconds(nil) == 30)
+        check("a garbled Retry-After falls back to 30", Slack.retryAfterSeconds("soon") == 30)
+        Slack.resetBackoff()
+        let slackT0 = Date()
+        check("no backoff before a 429", (try? Slack.checkBackoff(method: "conversations.history", now: slackT0)) != nil)
+        Slack.noteRateLimit(method: "conversations.history", retryAfter: 60, now: slackT0)
+        var waitLeft = 0
+        do { try Slack.checkBackoff(method: "conversations.history", now: slackT0.addingTimeInterval(10)) }
+        catch Slack.SlackError.rateLimited(let seconds) { waitLeft = seconds } catch {}
+        check("the method is held back, with the seconds left", waitLeft == 50)
+        check("another method is not held back",
+              (try? Slack.checkBackoff(method: "conversations.info", now: slackT0.addingTimeInterval(10))) != nil)
+        check("the method is free again once the wait is over",
+              (try? Slack.checkBackoff(method: "conversations.history", now: slackT0.addingTimeInterval(61))) != nil)
+        Slack.resetBackoff()
+
         /* The watermark is what stops a cleared row coming straight back: Slack
            keeps calling a message unread until something marks it read, and
            marking it would write into his real Slack. */
