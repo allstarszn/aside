@@ -8,6 +8,19 @@ DEST="$HOME/Applications/Aside.app"
 LABEL="com.espyagency.aside"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
+# Developers run the suite first, so a broken build never replaces the working app. The curl
+# one-liner clones into ~/.aside-src and runs this from there; that path skips the suite
+# because it is slow and a flaky test must not block a stranger's install.
+# ASIDE_SKIP_TESTS=1 skips it anywhere else.
+if [ "${ASIDE_SKIP_TESTS:-}" != "1" ] && [ "$PWD" != "$HOME/.aside-src" ]; then
+  echo "Running tests before install (ASIDE_SKIP_TESTS=1 skips)..."
+  if ! ./test.sh; then
+    echo >&2
+    echo "Tests failed, so nothing was installed. Fix them, or run ASIDE_SKIP_TESTS=1 ./install.sh to install anyway." >&2
+    exit 1
+  fi
+fi
+
 ./build.sh
 
 # An older aside started itself with SMAppService. That registration lives in macOS rather
