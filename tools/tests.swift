@@ -652,6 +652,46 @@ enum Tests {
         check("an outside delete is reflected too",
               !live.notes.contains { $0.title == "Second outside note" })
 
+        // 🔴 Both sides edited the same note: aside keeps what was typed and its
+        // pending save overwrites the file, which used to destroy the other app's
+        // edit without a trace. The outside version must survive as a copy.
+        print("an outside edit while typing")
+        let clash = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-clash-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: clash) }
+        let clashing = NoteStore(directory: clash)
+        clashing.text = "Clash\n\nthe original"
+        clashing.flushSave()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))   // let our own save's echo pass
+        clashing.reload()   // adopt the folder's own spelling of the path, as the app does after its first reload
+        clashing.text = "Clash\n\ntyped in aside"                     // save is now pending
+        try? "Clash\n\nwritten in Obsidian".write(
+            to: clash.appendingPathComponent("Clash.md"), atomically: true, encoding: .utf8)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))   // watcher fires, then the save lands
+        let clashNames = (try? FileManager.default.contentsOfDirectory(atPath: clash.path)) ?? []
+        let bodies = clashNames.compactMap { try? String(contentsOf: clash.appendingPathComponent($0), encoding: .utf8) }
+        check("the typed text still wins the original file",
+              bodies.contains { $0.contains("typed in aside") })
+        check("the outside edit survives in a copy",
+              bodies.contains { $0.contains("written in Obsidian") })
+        check("the copy is a separate file next to the note", clashNames.count == 2)
+        check("the user is told", clashing.conflictNotice?.contains("Clash (edited elsewhere)") == true)
+        check("the copy shows up in the list",
+              clashing.notes.contains { $0.text.contains("written in Obsidian") })
+
+        // Typing alone, with nobody else touching the file, makes no copy.
+        let quiet = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-quiet-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: quiet) }
+        let calm = NoteStore(directory: quiet)
+        calm.text = "Calm\n\none"
+        calm.flushSave()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        calm.reload()
+        calm.text = "Calm\n\ntwo"
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        check("a plain save makes no conflict copy",
+              ((try? FileManager.default.contentsOfDirectory(atPath: quiet.path)) ?? []).count == 1
+              && calm.conflictNotice == nil)
+
         UserDefaults.standard.removeObject(forKey: "notesDirectory")
         UserDefaults.standard.removeObject(forKey: "seededWelcome")
 

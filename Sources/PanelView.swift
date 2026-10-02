@@ -400,7 +400,12 @@ struct PanelView: View {
 
             Spacer()
 
-            if let savedAt = store.savedAt {
+            if let notice = store.conflictNotice {
+                Text(notice)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            } else if let savedAt = store.savedAt {
                 TimelineView(.periodic(from: .now, by: 20)) { _ in
                     Text(savedLabel(savedAt))
                         .font(.system(size: 11))

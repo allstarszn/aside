@@ -70,6 +70,8 @@ final class NoteStore: ObservableObject {
     @Published private(set) var notes: [Note] = []
     @Published var selectedID: URL?
     @Published private(set) var savedAt: Date?
+    /// Set when an edit from another app was set aside as a copy; cleared on the next note change.
+    @Published private(set) var conflictNotice: String?
 
     // Live text for the selected note. Writes are debounced.
     @Published var text: String = "" {
@@ -178,6 +180,18 @@ final class NoteStore: ObservableObject {
         let openNote = selectedID
         let typedText = text
 
+        // 🔴 Keeping the typed text means the pending save will write it over the
+        // file, so an edit made elsewhere in the meantime would vanish without a
+        // trace. When both sides changed, the other app's version is set aside as
+        // its own note first. `notes` still holds what this app last read or wrote,
+        // which is what tells an outside edit from our own unchanged file.
+        if editing, let openNote,
+           let known = notes.first(where: { $0.url == openNote })?.text,
+           let onDisk = try? String(contentsOf: openNote, encoding: .utf8),
+           onDisk != known, onDisk != typedText {
+            keepConflictCopy(of: onDisk, beside: openNote)
+        }
+
         reload()
 
         if editing, let openNote, notes.contains(where: { $0.url == openNote }) {
@@ -186,6 +200,18 @@ final class NoteStore: ObservableObject {
             selectedID = openNote
             text = typedText
             isLoading = false
+        }
+    }
+
+    /// Saves the other app's version of a note next to it, and says so.
+    private func keepConflictCopy(of body: String, beside note: URL) {
+        let base = note.deletingPathExtension().lastPathComponent + " (edited elsewhere)"
+        let copy = uniqueURL(forBase: base)
+        do {
+            try body.write(to: copy, atomically: true, encoding: .utf8)
+            conflictNotice = "Edited elsewhere too. Their version is saved as \"\(copy.deletingPathExtension().lastPathComponent)\"."
+        } catch {
+            NSLog("aside: could not keep the outside edit of \(note.path): \(error)")
         }
     }
 
@@ -278,6 +304,7 @@ final class NoteStore: ObservableObject {
         // Moving off an empty draft abandons it, so it must not be carried
         // across the next reload.
         if id != draftID { draftID = nil }
+        conflictNotice = nil
         isLoading = true
         selectedID = id
         text = note.text
