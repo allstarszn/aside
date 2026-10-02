@@ -479,6 +479,20 @@ struct PanelView: View {
                     }
                 }
                 Divider()
+                Toggle("Share anonymous usage", isOn: Binding(
+                    get: { UsagePing.enabled },
+                    set: {
+                        UsagePing.setEnabled($0)
+                        UsagePing.sendIfDue()
+                    }
+                ))
+                Button("See What's Sent...") {
+                    let alert = NSAlert()
+                    alert.messageText = "What aside sends"
+                    alert.informativeText = "Usage sharing is off until you turn it on in Settings. If you do, aside sends once a day: a random anonymous ID, the aside version and your macOS version. Never your messages, contacts, names or any content.\n\n\(UsagePing.preview())"
+                    alert.runModal()
+                }
+                Divider()
                 Toggle("Show in Menu Bar", isOn: Binding(
                     get: { (NSApp.delegate as? AppDelegate)?.menuBarVisible ?? false },
                     set: { (NSApp.delegate as? AppDelegate)?.setMenuBarVisible($0) }

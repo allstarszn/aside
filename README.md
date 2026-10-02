@@ -101,7 +101,11 @@ and leaves the originals untouched. Deleting a note moves it to the Trash.
 - The website counts visits, scroll depth, sections reached and clicks on the install
   buttons and the copy button, using a random id kept in your browser. It is off if your
   browser sends Do Not Track.
-- Nothing from inside the app is counted.
+- Usage sharing is off until you turn it on in Settings. If you do, aside sends once a day: a
+  random anonymous ID, the aside version and your macOS version. Never your messages,
+  contacts, names or any content. Turning it off stops the pings and deletes the ID.
+  "See What's Sent..." in the "..." menu shows the exact text. This is the only thing the
+  app ever sends about itself.
 
 ## Develop
 
