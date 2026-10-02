@@ -422,6 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelWidth: CGFloat = Layout.defaultPanelWidth
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NoteMigration.run()
         store = NoteStore(directory: Self.notesDirectory())
         tabFraction = CGFloat(UserDefaults.standard.object(forKey: "tabFraction") as? Double ?? 0.5)
         let savedWidth = CGFloat(UserDefaults.standard.object(forKey: "panelWidth") as? Double
