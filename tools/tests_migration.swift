@@ -120,6 +120,31 @@ enum MigrationTests {
         Tests.check("the next launch finishes the file that failed, and only that one",
                     finished == 1 && listing(e.store) == ["Also good.md", "Good.md", "Locked.md"])
 
+        print("an old folder that cannot be listed")
+        let g = scene("g")
+        write("Hidden\n\nbehind a locked folder", "Hidden.md", in: g.legacy, age: 100)
+        try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: g.legacy.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: g.legacy.path) }
+        let blocked = NoteMigration.run(into: g.store, defaults: g.defaults, home: g.home)
+        Tests.check("an unreadable folder copies nothing", blocked == 0 && listing(g.store).isEmpty)
+        Tests.check("and does not mark the migration done", !g.defaults.bool(forKey: "notesMigrated"))
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: g.legacy.path)
+        let unlocked = NoteMigration.run(into: g.store, defaults: g.defaults, home: g.home)
+        Tests.check("once access is back, the next launch copies the note",
+                    unlocked == 1 && listing(g.store) == ["Hidden.md"] && g.defaults.bool(forKey: "notesMigrated"))
+
+        print("a note deleted while another file keeps failing")
+        let h = scene("h")
+        write("Keep\n\nstays", "Keep.md", in: h.legacy, age: 100)
+        write("Gone\n\ndeleted later", "Gone.md", in: h.legacy, age: 100)
+        write("Locked\n\nunreadable", "Locked.md", in: h.legacy, age: 100)
+        try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: h.legacy.appendingPathComponent("Locked.md").path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: h.legacy.appendingPathComponent("Locked.md").path) }
+        NoteMigration.run(into: h.store, defaults: h.defaults, home: h.home)
+        try? fm.removeItem(at: h.store.appendingPathComponent("Gone.md"))
+        NoteMigration.run(into: h.store, defaults: h.defaults, home: h.home)
+        Tests.check("a note the person deleted is not copied back", listing(h.store) == ["Keep.md"])
+
         print("Smart answers on a migrated note")
         let f = scene("f")
         write("Launch plan\n\nthe zebra rollout starts monday", "Launch plan.md", in: f.legacy, age: 100)
