@@ -1,0 +1,16 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    # test.sh compiles for arm64-apple-macos14.0, so it needs an Apple silicon runner.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swiftc --version
+      - name: Run the suite
+        run: ./test.sh
