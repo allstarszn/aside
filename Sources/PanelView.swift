@@ -367,9 +367,6 @@ struct PanelView: View {
                         }
                         .contextMenu {
                             Button(note.pinned ? "Unpin" : "Pin to Top") { store.togglePin(note.url) }
-                            Button("Reveal in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([note.url])
-                            }
                             Divider()
                             Button("Move to Trash", role: .destructive) { store.delete(note.url) }
                         }
@@ -400,12 +397,7 @@ struct PanelView: View {
 
             Spacer()
 
-            if let notice = store.conflictNotice {
-                Text(notice)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-            } else if let savedAt = store.savedAt {
+            if let savedAt = store.savedAt {
                 TimelineView(.periodic(from: .now, by: 20)) { _ in
                     Text(savedLabel(savedAt))
                         .font(.system(size: 11))
@@ -418,10 +410,6 @@ struct PanelView: View {
                 // reading the inbox is a control that cannot mean anything
                 // where it is being read.
                 if surface == .notes {
-                    Button("Reveal in Finder") { store.revealInFinder() }
-                    Button("Notes Folder...") {
-                        (NSApp.delegate as? AppDelegate)?.chooseNotesFolder()
-                    }
                     Button("Move Note to Trash", role: .destructive) {
                         if let id = store.selectedID { store.delete(id) }
                     }

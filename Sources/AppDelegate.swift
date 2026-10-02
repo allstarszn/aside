@@ -468,7 +468,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Notes live in one private place and nowhere else.
     static func notesDirectory() -> URL { NoteStore.privateDirectory() }
 
-    /// Lets the user put their notes anywhere, including inside a notes vault.
     var menuBarVisible: Bool { menuBar != nil }
 
     func setMenuBarVisible(_ visible: Bool) {
@@ -547,23 +546,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         done.addButton(withTitle: "OK")
         NSApp.activate()
         done.runModal()
-    }
-
-    func chooseNotesFolder() {
-        let panelWasOpen = isExpanded
-        let open = NSOpenPanel()
-        open.canChooseFiles = false
-        open.canChooseDirectories = true
-        open.canCreateDirectories = true
-        open.allowsMultipleSelection = false
-        open.prompt = "Use This Folder"
-        open.message = "Choose where aside keeps your notes."
-        open.directoryURL = store.directory
-
-        NSApp.activate()
-        guard open.runModal() == .OK, let url = open.url else { return }
-        store.changeDirectory(to: url)
-        if panelWasOpen { NotificationCenter.default.post(name: .asideFocusEditor, object: nil) }
     }
 
     // MARK: Window construction

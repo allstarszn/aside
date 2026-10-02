@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-// A single note, backed by one markdown file in the Obsidian vault.
+// A single note, backed by one markdown file in aside's private notes folder.
 struct Note: Identifiable, Equatable {
     var url: URL
     var text: String
@@ -70,9 +70,6 @@ final class NoteStore: ObservableObject {
     @Published private(set) var notes: [Note] = []
     @Published var selectedID: URL?
     @Published private(set) var savedAt: Date?
-    /// Set when an edit from another app was set aside as a copy; cleared on the next note change.
-    @Published private(set) var conflictNotice: String?
-
     // Live text for the selected note. Writes are debounced.
     @Published var text: String = "" {
         didSet {
@@ -84,40 +81,13 @@ final class NoteStore: ObservableObject {
     private(set) var directory: URL
     private var isLoading = false
     private var saveTimer: Timer?
-    private var watcher: FolderWatcher?
-    /// Every markdown file in the folder and when it last changed, as this app
-    /// last saw it.
-    ///
-    /// 🔴 This is what `ourWrites` was supposed to be and never was. That
-    /// dictionary was written on every save and READ NOWHERE, so each save
-    /// aside made came back through the watcher 0.25s later looking exactly
-    /// like somebody editing the file in Obsidian, and triggered a full
-    /// reload. That self-inflicted reload is what made the new-note bug fire
-    /// on a button that touches no file at all.
-    ///
-    /// 🔑 A fingerprint of the WHOLE folder rather than a list of our own
-    /// writes, because the watcher is directory level and never says which
-    /// file moved. Anything that does not match is treated as somebody else's
-    /// edit, so the failure direction is a wasted reload, never a missed one.
-    ///
-    /// 🔴 Keyed by FILENAME, not by URL. `contentsOfDirectory` resolves symlinks
-    /// and a URL built with `appendingPathComponent` does not, so the same file
-    /// arrives under two spellings that are not `==` and every save then looked
-    /// external. It is a real path here and not only a test artifact: a Desktop
-    /// synced by iCloud is a symlink. One folder cannot hold two files with the
-    /// same name, so the name is the identity.
-    private var folderStamp: [String: Date] = [:]
     /// The note the pencil just made, which has NO FILE until something is
     /// typed into it.
     ///
     /// 🔴 Tracked by hand because a folder listing cannot see it, and `reload`
-    /// rebuilds the list from the folder. Without this, pressing the pencil
-    /// gave a blank page for a quarter of a second and then snapped back to
-    /// the previous note: `newNote` saves the outgoing note first, that write
-    /// is a folder change, the watcher fires, and the reload it triggers found
-    /// no file for the new note and selected whatever sorted first. The same
-    /// path lost TYPED text, since the first save is 0.6s away and the watcher
-    /// fires at 0.25s.
+    /// rebuilds the list from the folder. Without this, a reload after the
+    /// pencil found no file for the new note and selected whatever sorted
+    /// first, and typed text landed in the wrong note.
     private var draftID: URL?
 
     /// The only place notes live: inside aside's own support folder, as plain
@@ -133,94 +103,6 @@ final class NoteStore: ObservableObject {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         reload()
         seedWelcomeNoteIfEmpty()
-        startWatching()
-    }
-
-    /// Points the app at a different folder, saving anything outstanding first.
-    func changeDirectory(to newDirectory: URL) {
-        guard newDirectory != directory else { return }
-        flushSave()
-        watcher?.stop()
-        directory = newDirectory
-        UserDefaults.standard.set(newDirectory.path, forKey: "notesDirectory")
-        try? FileManager.default.createDirectory(at: newDirectory, withIntermediateDirectories: true)
-        selectedID = nil
-        draftID = nil
-        folderStamp.removeAll()
-        reload()
-        seedWelcomeNoteIfEmpty()
-        startWatching()
-    }
-
-    private func startWatching() {
-        watcher = FolderWatcher { [weak self] in self?.absorbExternalChanges() }
-        watcher?.watch(directory)
-    }
-
-    /// The folder as it is right now. 🔑 ONE function, used for both the stored
-    /// fingerprint and the comparison, so the two can never drift apart. It
-    /// lists every `.md` whether or not its contents can be read: `reload`
-    /// skips a file it cannot open, and a stamp built from what loaded would
-    /// disagree with this listing forever.
-    private func currentStamp() -> [String: Date] {
-        let found = (try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles])) ?? []
-        var stamp: [String: Date] = [:]
-        for url in found where url.pathExtension.lowercased() == "md" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            stamp[url.lastPathComponent] = values?.contentModificationDate ?? .distantPast
-        }
-        return stamp
-    }
-
-    /// True when the folder is exactly as this app last left it, so a watcher
-    /// event was its own save coming back rather than somebody else's edit.
-    func folderIsUnchanged() -> Bool { currentStamp() == folderStamp }
-
-    /// Adopts edits made elsewhere, without ever throwing away what is being typed.
-    private func absorbExternalChanges() {
-        // Our own save, echoed back by the watcher. Nothing to adopt.
-        guard !folderIsUnchanged() else { return }
-
-        let editing = saveTimer != nil          // a pending save means active typing
-        let openNote = selectedID
-        let typedText = text
-
-        // 🔴 Keeping the typed text means the pending save will write it over the
-        // file, so an edit made elsewhere in the meantime would vanish without a
-        // trace. When both sides changed, the other app's version is set aside as
-        // its own note first. `notes` still holds what this app last read or wrote,
-        // which is what tells an outside edit from our own unchanged file.
-        if editing, let openNote,
-           let known = notes.first(where: { $0.url == openNote })?.text,
-           let onDisk = try? String(contentsOf: openNote, encoding: .utf8),
-           onDisk != known, onDisk != typedText {
-            keepConflictCopy(of: onDisk, beside: openNote)
-        }
-
-        reload()
-
-        if editing, let openNote, notes.contains(where: { $0.url == openNote }) {
-            // Keep the in-progress edit. It is newer than anything on disk.
-            isLoading = true
-            selectedID = openNote
-            text = typedText
-            isLoading = false
-        }
-    }
-
-    /// Saves the other app's version of a note next to it, and says so.
-    private func keepConflictCopy(of body: String, beside note: URL) {
-        let base = note.deletingPathExtension().lastPathComponent + " (edited elsewhere)"
-        let copy = uniqueURL(forBase: base)
-        do {
-            try body.write(to: copy, atomically: true, encoding: .utf8)
-            conflictNotice = "Edited elsewhere too. Their version is saved as \"\(copy.deletingPathExtension().lastPathComponent)\"."
-        } catch {
-            NSLog("aside: could not keep the outside edit of \(note.path): \(error)")
-        }
     }
 
     /// A folder with nothing in it gives a new user nothing to look at.
@@ -235,14 +117,12 @@ final class NoteStore: ObservableObject {
 
         This is a note. The first line is its title, and it becomes the filename.
 
-        Everything you write here is a plain markdown file on disk, so you can open
-        the same notes in Obsidian, iA Writer, or anything else. Edits you make
-        elsewhere show up here automatically.
+        Everything you write here stays inside aside, on this Mac.
 
         - click the tab to open and close this panel
         - drag the tab to move it, including onto another display
         - the pencil starts a new note, the list icon shows all of them
-        - the ... menu has the notes folder and the rest of the settings
+        - the ... menu has the rest of the settings
         """
         isLoading = true
         let url = uniqueURL(forBase: "Welcome to aside")
@@ -260,11 +140,6 @@ final class NoteStore: ObservableObject {
 
     /// Re-reads the folder. Keeps unsaved edits to the selected note intact.
     func reload() {
-        // 🔴 Stamped BEFORE the files are read, not after. A write landing
-        // mid-reload would otherwise be stamped as seen while its contents
-        // were never loaded, and the next watcher event would be skipped as
-        // "unchanged". Stamping first costs at most one redundant reload.
-        folderStamp = currentStamp()
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
         let found = (try? fm.contentsOfDirectory(at: directory,
@@ -282,7 +157,7 @@ final class NoteStore: ObservableObject {
         }
         // 🔴 The draft has no file, so the listing above cannot contain it.
         // Carried across by hand, and only ever the pencil's own note: a file
-        // deleted in Obsidian must still disappear from here.
+        // deleted from disk must still disappear from here.
         if let id = draftID, selectedID == id, !loaded.contains(where: { $0.url == id }) {
             loaded.append(Note(url: id, text: text, modified: Date(),
                                pinned: pinnedPaths.contains(id.path)))
@@ -312,7 +187,6 @@ final class NoteStore: ObservableObject {
         // Moving off an empty draft abandons it, so it must not be carried
         // across the next reload.
         if id != draftID { draftID = nil }
-        conflictNotice = nil
         isLoading = true
         selectedID = id
         text = note.text
@@ -342,19 +216,9 @@ final class NoteStore: ObservableObject {
         var paths = pinnedPaths
         if paths.remove(id.path) != nil { pinnedPaths = paths }
         notes.removeAll { $0.url == id }
-        folderStamp = currentStamp()
         if draftID == id { draftID = nil }
         if selectedID == id {
             if let first = notes.first { select(first.url) } else { newNote() }
-        }
-    }
-
-    func revealInFinder() {
-        let target = selectedID.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-        if let target {
-            NSWorkspace.shared.activateFileViewerSelecting([target])
-        } else {
-            NSWorkspace.shared.open(directory)
         }
     }
 
@@ -401,14 +265,6 @@ final class NoteStore: ObservableObject {
             return
         }
 
-        // 🔴 Re-read the FOLDER, never the date this write appeared to have.
-        // Measured: reading `contentModificationDate` straight after an atomic
-        // write gives a value about a millisecond EARLIER than the one the
-        // folder reports a moment later, because the write lands as a temp file
-        // and a rename. Patching one entry from that early value left the stamp
-        // permanently one millisecond behind, so every save looked external and
-        // the guard did nothing. This also covers a rename for free.
-        folderStamp = currentStamp()
         // It has a file now, so the folder can see it and it needs no carrying.
         if draftID == id { draftID = nil }
         notes[index] = Note(url: target, text: body, modified: Date(),
@@ -421,7 +277,7 @@ final class NoteStore: ObservableObject {
     // MARK: - Pinning
 
     /// Pins live in preferences, not in the file, so the markdown stays clean and
-    /// nothing appears in Obsidian that the user did not write.
+    /// nothing extra is ever added to a note that the user did not write.
     private var pinnedPaths: Set<String> {
         get { Set(UserDefaults.standard.stringArray(forKey: "pinnedNotes") ?? []) }
         set { UserDefaults.standard.set(Array(newValue), forKey: "pinnedNotes") }

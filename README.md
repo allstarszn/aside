@@ -73,7 +73,7 @@ shows your notes and everything waiting for you in the same place. A dot appears
 on the tab when something is unread.
 
 Right-click a message to **Save as Note**, which is the reason both surfaces live
-in one panel: something asked of you in Slack becomes a note in your notes folder,
+in one panel: something asked of you in Slack becomes a note in aside,
 with the source recorded. Clicking a message opens the app it came from.
 
 **This needs Full Disk Access**, granted once in System Settings, Privacy and
@@ -109,13 +109,10 @@ without forgetting the preference, so plugging back in restores it.
 
 ## Where notes live
 
-`~/Documents/Aside/*.md` by default. Change it with **Notes Folder...** in the
-"..." menu, or point it at an Obsidian vault so your notes live alongside the
-rest of your writing.
-
-Edits you make elsewhere show up here **live**, without reopening the drawer.
-If you are mid-sentence when an outside edit lands, your typing wins: the app
-never overwrites what you have not finished.
+Notes live only inside aside, as plain markdown files in
+`~/Library/Application Support/aside/notes`. There is no notes folder to pick and
+nothing is written anywhere else. If you used an earlier version, the first launch
+copies your old notes in and leaves the originals untouched.
 
 ## Notes on the build
 

@@ -511,7 +511,7 @@ enum Tests {
               standing.contains("must not be overwritten"))
 
         // The other half of the rule: only the pencil's own note is carried.
-        // A note deleted in Obsidian must still disappear from the panel.
+        // A note deleted from disk must still disappear from the panel.
         try? "Deleted elsewhere".write(to: dir.appendingPathComponent("Deleted elsewhere.md"),
                                        atomically: true, encoding: .utf8)
         store.reload()
@@ -535,42 +535,6 @@ enum Tests {
         store.reload()
         check("an abandoned empty draft does not come back",
               !store.notes.contains { $0.url == abandoned })
-
-        print("the app does not reload on its own saves")
-        // 🔴 `ourWrites` was recorded on every save and READ NOWHERE, so each
-        // save came back through the 0.25s watcher looking like somebody
-        // editing in Obsidian and triggered a full reload. That self-inflicted
-        // reload is what made the new-note bug fire on a button that touches
-        // no file at all.
-        store.text = "Guard note\n\nsaved by the app"
-        store.flushSave()
-        check("after its own save the folder looks unchanged", store.folderIsUnchanged())
-
-        // 🔑 The direction that matters MORE. A guard that skips a real edit is
-        // far worse than a wasted reload, so every outside change is checked.
-        let outsider = dir.appendingPathComponent("From Obsidian.md")
-        try? "From Obsidian\n\ntyped elsewhere".write(to: outsider, atomically: true, encoding: .utf8)
-        check("a file created outside the app is seen", !store.folderIsUnchanged())
-        store.reload()
-        check("and the stamp catches up", store.folderIsUnchanged())
-
-        try? "From Obsidian\n\nedited again".write(to: outsider, atomically: true, encoding: .utf8)
-        check("an edit to an existing file is seen", !store.folderIsUnchanged())
-        store.reload()
-
-        try? FileManager.default.removeItem(at: outsider)
-        check("a deletion outside the app is seen", !store.folderIsUnchanged())
-        store.reload()
-        check("the stamp catches up with a deletion", store.folderIsUnchanged())
-
-        // Renaming is the app's own doing too: retitling moves the file.
-        store.text = "Guard note renamed\n\nsaved by the app"
-        store.flushSave()
-        check("a retitle by the app does not look external", store.folderIsUnchanged())
-
-        // And the pencil writes nothing, so it changes nothing.
-        store.newNote()
-        check("the pencil alone changes nothing on disk", store.folderIsUnchanged())
 
         print("pinning and ordering")
         let old = Date(timeIntervalSinceNow: -9000)
@@ -602,97 +566,6 @@ enum Tests {
               (UserDefaults.standard.stringArray(forKey: "pinnedNotes") ?? []).isEmpty)
         UserDefaults.standard.removeObject(forKey: "pinnedNotes")
 
-        print("folder switching")
-        let folderA = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-a-\(UUID().uuidString)")
-        let folderB = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-b-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: folderA); try? FileManager.default.removeItem(at: folderB) }
-
-        UserDefaults.standard.set(true, forKey: "seededWelcome")   // keep the seed out of these checks
-        let moving = NoteStore(directory: folderA)
-        moving.text = "Lives in A"
-        moving.flushSave()
-        check("the note landed in the first folder",
-              FileManager.default.fileExists(atPath: folderA.appendingPathComponent("Lives in A.md").path))
-
-        moving.changeDirectory(to: folderB)
-        check("the store follows the new folder", moving.directory == folderB)
-        check("the old folder is left alone",
-              FileManager.default.fileExists(atPath: folderA.appendingPathComponent("Lives in A.md").path))
-        check("the preference is written", (UserDefaults.standard.string(forKey: "notesDirectory") ?? "") == folderB.path)
-
-        moving.text = "Lives in B"
-        moving.flushSave()
-        check("new notes go to the new folder",
-              FileManager.default.fileExists(atPath: folderB.appendingPathComponent("Lives in B.md").path))
-
-        print("external edits")
-        let watched = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-watch-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: watched) }
-        let live = NoteStore(directory: watched)
-
-        // Somebody writes into the folder from Obsidian while aside is open.
-        try? "Written by Obsidian\n\nhello".write(
-            to: watched.appendingPathComponent("Written by Obsidian.md"), atomically: true, encoding: .utf8)
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        check("an outside edit is picked up without reopening",
-              live.notes.contains { $0.title == "Written by Obsidian" })
-        check("its text is read, not left blank",
-              live.notes.contains { $0.title == "Written by Obsidian" && $0.text.contains("hello") })
-
-        // A second one, so the count really is tracking the folder.
-        let settled = live.notes.count
-        try? "Second outside note".write(
-            to: watched.appendingPathComponent("Second outside note.md"), atomically: true, encoding: .utf8)
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        check("a second outside note also arrives", live.notes.count == settled + 1)
-
-        // Deleting from outside should remove it, not leave a ghost.
-        try? FileManager.default.removeItem(at: watched.appendingPathComponent("Second outside note.md"))
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        check("an outside delete is reflected too",
-              !live.notes.contains { $0.title == "Second outside note" })
-
-        // 🔴 Both sides edited the same note: aside keeps what was typed and its
-        // pending save overwrites the file, which used to destroy the other app's
-        // edit without a trace. The outside version must survive as a copy.
-        print("an outside edit while typing")
-        let clash = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-clash-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: clash) }
-        let clashing = NoteStore(directory: clash)
-        clashing.text = "Clash\n\nthe original"
-        clashing.flushSave()
-        RunLoop.current.run(until: Date().addingTimeInterval(1.0))   // let our own save's echo pass
-        clashing.reload()   // adopt the folder's own spelling of the path, as the app does after its first reload
-        clashing.text = "Clash\n\ntyped in aside"                     // save is now pending
-        try? "Clash\n\nwritten in Obsidian".write(
-            to: clash.appendingPathComponent("Clash.md"), atomically: true, encoding: .utf8)
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))   // watcher fires, then the save lands
-        let clashNames = (try? FileManager.default.contentsOfDirectory(atPath: clash.path)) ?? []
-        let bodies = clashNames.compactMap { try? String(contentsOf: clash.appendingPathComponent($0), encoding: .utf8) }
-        check("the typed text still wins the original file",
-              bodies.contains { $0.contains("typed in aside") })
-        check("the outside edit survives in a copy",
-              bodies.contains { $0.contains("written in Obsidian") })
-        check("the copy is a separate file next to the note", clashNames.count == 2)
-        check("the user is told", clashing.conflictNotice?.contains("Clash (edited elsewhere)") == true)
-        check("the copy shows up in the list",
-              clashing.notes.contains { $0.text.contains("written in Obsidian") })
-
-        // Typing alone, with nobody else touching the file, makes no copy.
-        let quiet = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aside-quiet-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: quiet) }
-        let calm = NoteStore(directory: quiet)
-        calm.text = "Calm\n\none"
-        calm.flushSave()
-        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-        calm.reload()
-        calm.text = "Calm\n\ntwo"
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        check("a plain save makes no conflict copy",
-              ((try? FileManager.default.contentsOfDirectory(atPath: quiet.path)) ?? []).count == 1
-              && calm.conflictNotice == nil)
-
-        UserDefaults.standard.removeObject(forKey: "notesDirectory")
         UserDefaults.standard.removeObject(forKey: "seededWelcome")
 
         print("imessage bodies")
