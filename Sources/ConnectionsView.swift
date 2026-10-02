@@ -10,6 +10,8 @@ struct ConnectionsSnapshot: Equatable {
     var advancedEnabled: Bool
     var whatsApp: ConnectorState
     var discord: ConnectorState
+    /// Whether an Anthropic key is stored. Mirrored in, never read in a redraw.
+    var smartKeySet: Bool = false
 }
 
 enum ConnectionFix: Equatable {
@@ -153,19 +155,21 @@ struct ConnectionsView: View {
     /// Mirrored into view state so a redraw never reads the keychain.
     @State private var slackConnected = false
     @State private var accessibility = false
+    @State private var smartKeySet = false
 
     var body: some View {
         ConnectionsContent(
             snapshot: ConnectionsSnapshot(
                 canReadInbox: inbox.canRead, accessibilityTrusted: accessibility,
                 slackConnected: slackConnected, advancedEnabled: advanced,
-                whatsApp: whatsApp.state, discord: discord.state),
+                whatsApp: whatsApp.state, discord: discord.state, smartKeySet: smartKeySet),
             onBack: onBack,
             setAdvanced: { on in
                 advanced = on
                 ConnectionsLogic.setAdvanced(on)
             },
-            perform: Self.perform)
+            perform: Self.perform,
+            smartKeyChanged: { smartKeySet = $0 })
         .onAppear(perform: refresh)
         .onReceive(NotificationCenter.default.publisher(for: .asideSlackChanged)) { _ in refresh() }
         // Back from System Settings is the moment a permission has changed.
@@ -174,6 +178,7 @@ struct ConnectionsView: View {
 
     private func refresh() {
         slackConnected = Slack.isConnected
+        smartKeySet = SmartKey.isSet
         accessibility = AXIsProcessTrusted()
         advanced = AdvancedConnections.enabled
     }
@@ -200,6 +205,7 @@ struct ConnectionsContent: View {
     var onBack: () -> Void
     var setAdvanced: (Bool) -> Void
     var perform: (ConnectionFix) -> Void
+    var smartKeyChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         ScrollView {
@@ -212,6 +218,8 @@ struct ConnectionsContent: View {
                 .foregroundStyle(.secondary)
 
                 advancedCard
+
+                SmartKeyCard(keySet: snapshot.smartKeySet, changed: smartKeyChanged)
 
                 ForEach(ConnectionsLogic.rows(snapshot)) { row in
                     rowView(row)
@@ -282,5 +290,92 @@ struct ConnectionsContent: View {
         case .needsAttention: return .red
         case .info: return Color.primary.opacity(0.3)
         }
+    }
+}
+
+/// "Smart answers": the person's own Anthropic key, for the Ask cloud brain.
+struct SmartKeyCard: View {
+    static let blurb = "Paste your own Anthropic key and Ask gets a smarter brain. Only short snippets of what it looks up leave your Mac, and your key stays in your Keychain. Without a key, Ask stays on this Mac."
+    static let placeholder = "Anthropic key"
+
+    let keySet: Bool
+    var changed: (Bool) -> Void
+
+    @State private var pasted = ""
+    @State private var status: String?
+    @State private var testing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 9) {
+                Circle()
+                    .fill(keySet ? Color.green : Color.primary.opacity(0.3))
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 5)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Smart answers").font(.system(size: 12.5, weight: .semibold))
+                    Text(keySet ? "A key is saved. Ask uses it." : Self.blurb)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 6)
+            }
+            if !keySet {
+                HStack(spacing: 6) {
+                    SecureField(Self.placeholder, text: $pasted)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11.5))
+                    Button("Save") { save() }
+                        .controlSize(.small)
+                        .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Button(testing ? "Testing..." : "Test") { test() }
+                        .controlSize(.small)
+                        .disabled(testing)
+                    Button("Remove") { remove() }
+                        .controlSize(.small)
+                }
+            }
+            if let status {
+                Text(status)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.04)))
+    }
+
+    private func save() {
+        if SmartKey.save(pasted) {
+            pasted = ""
+            status = "Saved. Press Test to check it."
+            changed(true)
+        } else {
+            status = "Could not save the key to your Keychain."
+        }
+    }
+
+    private func test() {
+        testing = true
+        status = nil
+        Task {
+            let result = await SmartAgent.ping(client: AnthropicClient())
+            await MainActor.run {
+                status = result == "ok" ? "Works. Anthropic answered." : result
+                testing = false
+            }
+        }
+    }
+
+    private func remove() {
+        SmartKey.remove()
+        status = "Removed. Ask is back to this Mac only."
+        changed(false)
     }
 }

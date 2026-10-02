@@ -125,12 +125,19 @@ enum AskIntent: Equatable {
     static let draftThreadLimit = 6
     static let draftCharLimit = 280
 
-    static func draftPrompt(message: InboxMessage, thread: [ThreadMessage]) -> String {
+    static func draftPrompt(message: InboxMessage, thread: [ThreadMessage],
+                            myMessages: [String] = []) -> String {
         // Narrative lines, never "Name: text", which the model copies into its reply.
-        let recent = thread.suffix(draftThreadLimit).map {
-            "\($0.sender.isEmpty ? sender(message) : $0.sender) wrote: \(String($0.text.prefix(draftCharLimit)))"
+        // The person's own lines say "You": an empty sender in a one to one thread
+        // is the OTHER side, and must not be credited with what they wrote.
+        let recent = thread.suffix(draftThreadLimit).map { line -> String in
+            let who = line.fromMe ? "You" : (line.sender.isEmpty ? sender(message) : line.sender)
+            return "\(who) wrote: \(String(line.text.prefix(draftCharLimit)))"
         }
-        let history = recent.isEmpty ? "" : "Earlier in this conversation:\n" + recent.joined(separator: "\n") + "\n\n"
+        let style = myMessages.isEmpty ? "" :
+            "How you write (your own earlier messages here, copy the tone, not the content):\n"
+            + myMessages.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+        let history = style + (recent.isEmpty ? "" : "Earlier in this conversation:\n" + recent.joined(separator: "\n") + "\n\n")
         let body = String(message.body.prefix(draftCharLimit))
         let how = kind(of: message) == .question
             ? "They asked for something. Answer only from the conversation, or say you will check and get back to them. One sentence."
