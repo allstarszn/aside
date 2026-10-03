@@ -3,6 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Check VERSION first, so a bad one fails in a second rather than after the compile.
+source ./version.sh
+aside_version "$PWD" > /dev/null || exit 1
+
 APP="build/Aside.app"
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -14,34 +18,7 @@ swiftc -O \
 
 cp brand/Aside.icns "$APP/Contents/Resources/Aside.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>Aside</string>
-  <key>CFBundleDisplayName</key><string>Aside</string>
-  <key>CFBundleIdentifier</key><string>com.espyagency.aside</string>
-  <key>CFBundleExecutable</key><string>Aside</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>CFBundleIconFile</key><string>Aside</string>
-  <key>LSUIElement</key><true/>
-  <key>NSHighResolutionCapable</key><true/>
-  <!-- How a Slack token gets back into the app. Slack only redirects to HTTPS,
-       so the landing site catches the callback and forwards it here. -->
-  <key>CFBundleURLTypes</key>
-  <array>
-    <dict>
-      <key>CFBundleURLName</key><string>com.espyagency.aside</string>
-      <key>CFBundleURLSchemes</key><array><string>aside</string></array>
-    </dict>
-  </array>
-</dict>
-</plist>
-PLIST
+aside_write_plist "$APP/Contents/Info.plist" "$PWD"
 
 source ./signing-id.sh
 IDENTITY="$(aside_signing_identity)"
