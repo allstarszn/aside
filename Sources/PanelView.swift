@@ -479,6 +479,20 @@ struct PanelView: View {
                     }
                 }
                 Divider()
+                Toggle("Share anonymous usage", isOn: Binding(
+                    get: { UsagePing.enabled },
+                    set: {
+                        UsagePing.setEnabled($0)
+                        UsagePing.sendIfDue()
+                    }
+                ))
+                Button("See What's Sent...") {
+                    let alert = NSAlert()
+                    alert.messageText = "What aside sends"
+                    alert.informativeText = UsagePing.alertText()
+                    alert.runModal()
+                }
+                Divider()
                 Toggle("Show in Menu Bar", isOn: Binding(
                     get: { (NSApp.delegate as? AppDelegate)?.menuBarVisible ?? false },
                     set: { (NSApp.delegate as? AppDelegate)?.setMenuBarVisible($0) }

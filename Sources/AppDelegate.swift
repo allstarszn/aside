@@ -459,6 +459,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         inbox.start()
+        // Does nothing unless the user turned usage sharing on. The timer covers
+        // a Mac that stays logged in for days.
+        UsagePing.sendIfDue()
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in UsagePing.sendIfDue() }
         // Starts WhatsApp and Discord only if the user turned Advanced
         // connections on; otherwise it makes sure they are stopped.
         WhatsAppLink.shared.onMessages = { [inbox] in inbox.ingestExternal($0) }

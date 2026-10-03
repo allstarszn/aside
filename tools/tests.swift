@@ -1161,6 +1161,7 @@ enum Tests {
         RailGlassTests.run()
         SmartTests.run()
         MigrationTests.run()
+        PingTests.run()
         return failures
     }
 }
