@@ -9,6 +9,8 @@ enum UsagePing {
     static let key = "shareUsage"
     static let idKey = "usageId"
     static let dayKey = "usagePingDay"
+    /// The disclosure, word for word as it appears on the website and in the README.
+    static let disclosure = "Usage sharing is off until you turn it on in the panel's ... menu. If you do, aside sends once a day: a random anonymous ID, the aside version and your macOS version. Never your messages, contacts, names or any content."
     static let endpoint = URL(string: "https://aside-landing-two.vercel.app/api/p")!
 
     static var enabled: Bool { UserDefaults.standard.bool(forKey: key) }
@@ -36,6 +38,11 @@ enum UsagePing {
 
     /// What "See What's Sent" shows. Before the first ping there is no id yet, and
     /// showing this must not create one, so a placeholder stands in.
+    /// The body of the "What aside sends" alert: the disclosure, then the literal JSON.
+    static func alertText(defaults: UserDefaults = .standard) -> String {
+        "\(disclosure)\n\n\(preview(defaults: defaults))"
+    }
+
     static func preview(defaults: UserDefaults = .standard) -> String {
         let id = defaults.string(forKey: idKey) ?? "(a random id, made when you turn this on)"
         return String(data: body(id: id, version: version, os: osMajor), encoding: .utf8) ?? ""

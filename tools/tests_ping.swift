@@ -58,6 +58,22 @@ enum PingTests {
         UsagePing.setEnabled(false, defaults: again)
         UsagePing.setEnabled(true, defaults: again)
         Tests.check("off and on the same day starts clean and pings once", sent(again).count == 1)
+        let sentence = "Usage sharing is off until you turn it on in the panel's ... menu. If you do, aside sends once a day: a random anonymous ID, the aside version and your macOS version. Never your messages, contacts, names or any content."
+        Tests.check("the disclosure is the exact agreed sentence", UsagePing.disclosure == sentence)
+        Tests.check("the What aside sends alert opens with that sentence",
+                    UsagePing.alertText(defaults: scene()).hasPrefix(sentence + "\n\n"))
+        Tests.check("the README carries that sentence", {
+            guard let readme = try? String(contentsOfFile: "README.md", encoding: .utf8) else { return false }
+            return readme.replacingOccurrences(of: "\n  ", with: " ").contains(sentence)
+        }())
+        Tests.check("the alert in PanelView is built from that sentence, not its own copy", {
+            guard let panel = try? String(contentsOfFile: "Sources/PanelView.swift", encoding: .utf8) else { return false }
+            return panel.contains("alert.informativeText = UsagePing.alertText()") && !panel.contains("in Settings")
+        }())
+        Tests.check("nothing still says to look in Settings", {
+            guard let readme = try? String(contentsOfFile: "README.md", encoding: .utf8) else { return false }
+            return !readme.contains("turn it on in Settings") && !UsagePing.disclosure.contains("Settings")
+        }())
         Tests.check("showing what is sent makes no id", {
             let d = scene()
             _ = UsagePing.preview(defaults: d)

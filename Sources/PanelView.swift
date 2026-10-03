@@ -489,7 +489,7 @@ struct PanelView: View {
                 Button("See What's Sent...") {
                     let alert = NSAlert()
                     alert.messageText = "What aside sends"
-                    alert.informativeText = "Usage sharing is off until you turn it on in Settings. If you do, aside sends once a day: a random anonymous ID, the aside version and your macOS version. Never your messages, contacts, names or any content.\n\n\(UsagePing.preview())"
+                    alert.informativeText = UsagePing.alertText()
                     alert.runModal()
                 }
                 Divider()
