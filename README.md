@@ -117,6 +117,8 @@ ASIDE_SKIP_TESTS=1 ./install.sh   # install without running the suite
 ./build/snapshot preview.png dark inbox   # render a surface offscreen to a PNG
 ```
 
+The version lives in the `VERSION` file at the repo root (`major.minor.patch`). Bump it there; `build.sh` writes it into the app as `CFBundleShortVersionString`, which is what the usage ping reports.
+
 `install.sh` runs the tests first so a broken build never replaces the working app. The
 curl one-liner skips them. Command line tools only: no Xcode, no Homebrew, no
 dependencies. `tools/` is development only and is not part of the app bundle.

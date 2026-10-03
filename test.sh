@@ -8,3 +8,6 @@ swiftc -target arm64-apple-macos14.0 -o build/snapshot \
   $(ls Sources/*.swift | grep -v 'Sources/main.swift') \
   tools/tests.swift tools/tests_*.swift tools/measure.swift tools/main.swift
 ./build/snapshot test
+
+# The version contract (VERSION file, built plist, bad VERSION refused).
+./tools/check_version.sh
